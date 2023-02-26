@@ -1,0 +1,16 @@
+**/__pycache__
+**/.coverage
+**/.ipynb_checkpoints
+**/.mypy_cache
+**/.pytest_cache
+**/.vscode
+
+/build
+/dist
+/*.egg-info
+/.eggs
+
+*.py[cod]
+*.dll
+*$py.class
+*.cprof

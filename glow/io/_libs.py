@@ -1,0 +1,16 @@
+__all__ = ['load_library']
+
+import os
+import sys
+from ctypes import CDLL
+from pathlib import Path
+
+_root = (Path(__file__).parent / 'libs').as_posix()
+
+
+def load_library(name: str, version: int) -> CDLL:
+    if sys.platform != 'win32':
+        return CDLL(f'{name}.so.{version}')
+
+    with os.add_dll_directory(_root):
+        return CDLL(f'{_root}/{name}-{version}.dll')
