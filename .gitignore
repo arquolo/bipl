@@ -5,10 +5,10 @@
 **/.pytest_cache
 **/.vscode
 
-/build
-/dist
-/*.egg-info
-/.eggs
+build
+dist
+*.egg-info
+.eggs
 
 *.py[cod]
 *.dll

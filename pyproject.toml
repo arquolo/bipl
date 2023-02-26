@@ -1,0 +1,160 @@
+[build-system]
+requires = ["hatchling", "tqdm"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+only-packages = true
+
+[tool.hatch.build.targets.wheel]
+artifacts = ["*.dll"]  # only wheel keeps DLLs
+
+[tool.hatch.build.hooks.custom]  # enable "custom" hook
+
+[project]
+name = "bipl"
+version = "0.1.0"
+description = "Big Image Python Library"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+keywords = ["TIFF", "SVS", "OpenSlide", "tiles"]
+authors = [
+    {name = "Paul Maevskikh", email = "arquolo@gmail.com"},
+]
+maintainers = [
+    {name = "Paul Maevskikh", email = "arquolo@gmail.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+
+dependencies = [
+    "glow~=0.12.0",
+    "imagecodecs",
+    "lxml",
+    "numpy~=1.21",
+    "opencv-python~=4.0",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev-core = [
+    "flake8~=6.0.0",
+    "flake8-pie",
+    "flake8-pyi",
+    "flake8-pyproject",
+    "flake8-simplify",
+    "isort",
+    "mypy~=0.990",
+    "pytest~=6.0",
+    "ruff",
+    "yapf~=0.29,!=0.30,!=0.31,!=0.32",
+]
+dev = [
+    "bipl[dev-core]",
+    "flake8-alphabetize",
+    # ? flake8-class-attributes-order  # CCE{001-002}
+    # ? flake8-newspaper-style  # NEW100
+    # ? flake8-pyprojecttoml
+    "typing-extensions~=4.4",
+]
+dev-wemake = [
+    "bipl[dev-core]",
+    "wemake-python-styleguide~=0.15.0",
+]
+
+[project.urls]
+homepage = "https://github.com/arquolo/bipl"
+repository = "https://github.com"
+
+# Lint
+
+[tool.ruff]
+select = [
+    "A", "B", "C4", "C9", "D", "E", "F", "N", "PT", "Q0", "RET", "S", "SIM", "UP", "W",
+    "BLE", "COM", "ICN", "INP", "PL", "RSE", "RUF",
+    # "FBT", "SLF", "TCH",
+    "TRY",
+]
+ignore = [
+    "A003", "B008", "B905", "D1", "D2", "D4", "N812", "S1", "S3",
+    "COM812", "COM818", "PLR0913", "PLR2004", "PT011", "RET504", "TRY003", "SIM105",
+]
+exclude = [".eggs", ".git", "__pycache__", "build", "dist"]
+line-length = 79
+target-version = "py39"
+
+[tool.ruff.flake8-quotes]
+inline-quotes = "single"
+
+[tool.ruff.mccabe]
+max-complexity = 10
+
+[tool.flake8]
+select = [
+    # pyflakes,pycodestyle: n/a in ruff
+    "E", "F703", "F721", "F723", "F831", "W",
+    # flake8-alphabetize
+    "AZ400",
+    # flake8-class-attributes-order: CCE{001-002}
+    # "CCE",
+    # flake8-newspaper-style: NEW100
+    # "NEW",
+    # flake8-pie
+    "PIE787", "PIE789", "PIE793", "PIE795", "PIE798", "PIE799", "PIE805", "PIE806",
+    # flake8-pyi: Y{002-006,009-026,028-052}
+    "Y0",
+    # flake8-simplify
+    "SIM113", "SIM116", "SIM9",
+    # wemake-python-styleguide
+    "WPS",
+]
+ignore = [
+    "W503", "W504",
+    "WPS1",
+    "WPS2",
+    "WPS300", "WPS301", "WPS303", "WPS304", "WPS305", "WPS306", "WPS309", "WPS314", "WPS316", "WPS317", "WPS318", "WPS319", "WPS326", "WPS330", "WPS331", "WPS332", "WPS335", "WPS336", "WPS337", "WPS338", "WPS339", "WPS347", "WPS349", "WPS352", "WPS356", "WPS358", "WPS359", "WPS361", "WPS362",
+    "WPS407", "WPS410", "WPS412", "WPS414", "WPS420", "WPS421", "WPS424", "WPS425", "WPS428", "WPS429", "WPS430", "WPS431", "WPS432", "WPS433", "WPS434", "WPS435", "WPS436", "WPS437", "WPS440", "WPS441", "WPS442", "WPS444", "WPS450", "WPS451", "WPS457", "WPS458", "WPS459", "WPS460", "WPS461", "WPS465",
+    "WPS501", "WPS503", "WPS509", "WPS526", "WPS527", "WPS529",
+    "WPS600", "WPS601", "WPS602", "WPS603", "WPS604", "WPS609",
+]
+exclude = [".eggs", ".git", "__pycache__", "build", "dist"]
+max-complexity = 10
+
+# Type check
+
+[tool.mypy]
+sqlite_cache = true
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+warn_unused_ignores = true
+plugins = [
+    "numpy.typing.mypy_plugin",
+]
+
+# Format
+
+[tool.yapf]
+based_on_style = "facebook"
+
+align_closing_bracket_with_visual_indent = true
+allow_multiline_dictionary_keys = true
+coalesce_brackets = true
+column_limit = 79
+dedent_closing_brackets = false
+spaces_around_power_operator = true
+
+split_arguments_when_comma_terminated = true
+split_before_arithmetic_operator = true
+split_before_bitwise_operator = true
+split_before_dict_set_generator = false
+split_before_dot = true
+split_before_expression_after_opening_paren = true
+split_before_logical_operator = true
