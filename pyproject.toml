@@ -58,9 +58,8 @@ dev-core = [
 dev = [
     "bipl[dev-core]",
     "flake8-alphabetize",
-    # ? flake8-class-attributes-order  # CCE{001-002}
-    # ? flake8-newspaper-style  # NEW100
-    # ? flake8-pyprojecttoml
+    # "flake8-class-attributes-order",
+    # "flake8-newspaper-style",
     "typing-extensions~=4.4",
 ]
 dev-wemake = [
