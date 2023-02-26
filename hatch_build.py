@@ -9,7 +9,7 @@ from zipfile import ZipFile
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 from tqdm import tqdm
 
-_VERSION = '20171122'
+_VERSION = '20221217'
 _URL = ('https://github.com/openslide/openslide-winbuild/releases/download'
         f'/v{_VERSION}/openslide-win64-{_VERSION}.zip')
 _TARGET = 'src/bipl/io/libs'
