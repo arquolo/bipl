@@ -1,2 +1,2 @@
 [run]
-omit = glow/test/*
+omit = src/bipl/test/*
