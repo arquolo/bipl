@@ -66,7 +66,11 @@ def _reweight(weight: np.ndarray, tile: np.ndarray) -> np.ndarray:
 def _crop(tiles: Iterable[Tile], shape: tuple[int, ...]) -> Iterator[Tile]:
     h, w = shape
     for iyx, (y, x), tile in tiles:
-        yield Tile(iyx, (y, x), tile[:h - y, :w - x])
+        yield Tile(
+            idx=iyx,
+            vec=(y, x),
+            data=tile[:h - y, :w - x],
+        )
 
 
 def get_fusion(tiles: Iterable[Tile],
@@ -201,7 +205,7 @@ class _BaseView:
             tw, th = tile.data.shape[:2]
             v = view[tile.vec[0] // v_scale:,
                      tile.vec[1] // v_scale:][:tw // v_scale, :th // v_scale]
-            yield *tile, v
+            yield tile.idx, tile.vec, tile.data, v
 
 
 @dataclass
@@ -276,10 +280,11 @@ class _DecimatedView(_View):
 
     def __iter__(self) -> Iterator[Tile]:
         for t in self.source:
+            vec = *(c // self.stride for c in t.vec),
             yield Tile(
-                t.idx,
-                tuple(c // self.stride for c in t.vec),  # type: ignore
-                t.data[::self.stride, ::self.stride],
+                idx=t.idx,
+                vec=vec,  # type: ignore[arg-type]
+                data=t.data[::self.stride, ::self.stride],
             )
 
 
@@ -326,7 +331,11 @@ class _TiledArrayView(_View):
             y0 += self.m.overlap
         if ix and self.cells[iy, ix - 1]:
             x0 += self.m.overlap
-        return Tile((iy, ix), (y0, x0), self.data[y0:y1, x0:x1])
+        return Tile(
+            idx=(iy, ix),
+            vec=(y0, x0),
+            data=self.data[y0:y1, x0:x1],
+        )
 
     def _rejoin_tiles(self, image_parts: Iterable[Tile]) -> Iterator[Tile]:
         """Joins non-overlapping parts to tiles"""
@@ -346,8 +355,11 @@ class _TiledArrayView(_View):
             else:
                 tile = part
 
-            yield Tile((iy, ix), (iy * step - overlap, ix * step - overlap),
-                       tile)
+            yield Tile(
+                idx=(iy, ix),
+                vec=(iy * step - overlap, ix * step - overlap),
+                data=tile,
+            )
 
             if cells[iy, ix + 1]:
                 row[ix + 1][:, :overlap] = tile[:, -overlap:]
@@ -421,7 +433,11 @@ class _UniqueTileView(_BaseView):
                 bottom = bottom[:, -(step - overlap):]
             self._row[ix] = bottom
 
-        return Tile((iy, ix), (y, x), tile)
+        return Tile(
+            idx=(iy, ix),
+            vec=(y, x),
+            data=tile,
+        )
 
     def __iter__(self) -> Iterator[Tile]:
         assert self.m.overlap
