@@ -95,8 +95,8 @@ class _Lod(Lod):
     osd: Openslide
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        (y_min2, y_max2), (x_min2, x_max2) = box_ = ([s.start, s.stop]
-                                                     for s in slices)
+        (y_min2, y_max2), (x_min2, x_max2) = box_ \
+            = [(s.start, s.stop) for s in slices]  # noqa: UP027
         box = np.array(box_)
         valid_box = box.T.clip([0, 0], self.shape[:2]).T
 
