@@ -31,6 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
 ]
 
 dependencies = [
@@ -53,7 +54,8 @@ dev-core = [
     "mypy~=0.990",
     "pytest~=6.0",
     "ruff",
-    "yapf~=0.29,!=0.30,!=0.31,!=0.32",
+    "yapf[pyproject]~=0.29,!=0.30,!=0.31,!=0.32",
+    "toml; python_version>='3.11'",  # See: https://github.com/google/yapf/pull/1040. Drop for yapf~=0.33
 ]
 dev = [
     "bipl[dev-core]",
@@ -87,6 +89,7 @@ ignore = [
 exclude = [".eggs", ".git", "__pycache__", "build", "dist"]
 line-length = 79
 target-version = "py39"
+unfixable = ["I001"]
 
 [tool.ruff.flake8-quotes]
 inline-quotes = "single"
