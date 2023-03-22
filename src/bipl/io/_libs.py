@@ -21,6 +21,6 @@ def load_library(name: str, *versions: int) -> CDLL:
     for v in versions:
         try:
             return _load_library(name, v)
-        except FileNotFoundError as exc:
+        except (OSError, FileNotFoundError) as exc:
             errors.append(exc)
     raise errors[-1]
