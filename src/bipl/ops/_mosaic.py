@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import NamedTuple, Protocol, TypeVar, cast
+from typing import ContextManager, NamedTuple, Protocol, TypeVar, cast
 
 import cv2
 import numpy as np
@@ -207,6 +207,9 @@ class _BaseView:
                      tile.vec[1] // v_scale:][:tw // v_scale, :th // v_scale]
             yield tile.idx, tile.vec, tile.data, v
 
+    def with_cm(self: _Self, cm: ContextManager) -> _Self:
+        return cast(_Self, _CmView(self.m, self.shape, self.cells, self, cm))
+
 
 @dataclass
 class _View(_BaseView):
@@ -266,6 +269,16 @@ class _IterView(_View):
 
     def __iter__(self) -> Iterator[Tile]:
         return iter(self.source)
+
+
+@dataclass
+class _CmView(_BaseView):
+    source: Iterable[Tile]
+    _cm: ContextManager
+
+    def __iter__(self) -> Iterator[Tile]:
+        with self._cm:
+            yield from self.source
 
 
 @dataclass
