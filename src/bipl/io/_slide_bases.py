@@ -29,7 +29,8 @@ def normalize(slices: tuple[slice, ...] | slice,
 class Item:
     shape: tuple[int, ...]
 
-    def get_key(self) -> str | None:
+    @property
+    def key(self) -> str | None:
         raise NotImplementedError
 
     def __array__(self) -> np.ndarray:
@@ -41,7 +42,8 @@ class Lod(Item):
     spacing: float | None
 
     @final
-    def get_key(self) -> None:
+    @property
+    def key(self) -> None:
         return None
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
@@ -104,6 +106,10 @@ class Driver:
     def __getitem__(self, index: int) -> Item:
         """Gives indexed item"""
         raise NotImplementedError
+
+    def named_items(self) -> dict[str, Item]:
+        keys = self.keys()
+        return {k: self.get(k) for k in keys}
 
     def keys(self) -> list[str]:
         """List of names for named items"""

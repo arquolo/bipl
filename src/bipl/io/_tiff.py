@@ -136,7 +136,7 @@ class _ItemBase(Item):
 
 @dataclass(frozen=True)
 class _Item(_ItemBase):
-    def get_key(self) -> str | None:
+    def key(self) -> str | None:
         if self.tiff.is_svs and self.index == 1:
             return 'thumbnail'
         for key in ('label', 'macro'):

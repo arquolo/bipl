@@ -85,7 +85,7 @@ class Slide:
             if isinstance(item, Lod):
                 pool = round(item_0.shape[0] / item.shape[0])
                 lods[pool] = item
-            elif key := item.get_key():
+            elif key := item.key:
                 self.extras[key] = item
 
         self.pools = *sorted(lods.keys()),
@@ -93,7 +93,7 @@ class Slide:
         self.shape = self.lods[0].shape
         self.spacing = self.lods[0].spacing
 
-        self.extras |= {key: driver.get(key) for key in driver.keys()}
+        self.extras |= driver.named_items()
         self.driver = driver_cls.__name__
 
     def __reduce__(self) -> tuple:

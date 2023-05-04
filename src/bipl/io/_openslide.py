@@ -77,7 +77,8 @@ class _Item(Item):
     name: bytes
     osd: Openslide
 
-    def get_key(self) -> str:
+    @property
+    def key(self) -> str:
         return self.name.decode()
 
     def __array__(self) -> np.ndarray:
