@@ -71,7 +71,7 @@ class _Compression(Enum):
     WEBP = 50001
 
 
-class _Tag:  # noqa: PIE795
+class _Tag:  # noqa: PIE795,RUF100
     JPEG_TABLES = 347
     TILE_BYTE_COUNTS = 325
     BACKGROUND_COLOR = 434

@@ -5,10 +5,11 @@ __all__ = ['Mosaic', 'Tile', 'get_fusion']
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import ContextManager, NamedTuple, Protocol, TypeVar, cast
+from typing import NamedTuple, Protocol, TypeVar, cast
 
 import cv2
 import numpy as np
@@ -207,7 +208,7 @@ class _BaseView:
                      tile.vec[1] // v_scale:][:tw // v_scale, :th // v_scale]
             yield tile.idx, tile.vec, tile.data, v
 
-    def with_cm(self: _Self, cm: ContextManager) -> _Self:
+    def with_cm(self: _Self, cm: AbstractContextManager) -> _Self:
         return cast(_Self, _CmView(self.m, self.shape, self.cells, self, cm))
 
 
@@ -274,7 +275,7 @@ class _IterView(_View):
 @dataclass
 class _CmView(_BaseView):
     source: Iterable[Tile]
-    _cm: ContextManager
+    _cm: AbstractContextManager
 
     def __iter__(self) -> Iterator[Tile]:
         with self._cm:

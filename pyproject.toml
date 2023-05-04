@@ -53,9 +53,8 @@ dev-core = [
     "isort",
     "mypy~=0.990",
     "pytest~=6.0",
-    "ruff",
-    "yapf[pyproject]~=0.29,!=0.30,!=0.31,!=0.32",
-    "toml; python_version>='3.11'",  # See: https://github.com/google/yapf/pull/1040. Drop for yapf~=0.33
+    "ruff~=0.0.264",
+    "yapf~=0.33.0",
 ]
 dev = [
     "bipl[dev-core]",
