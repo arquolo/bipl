@@ -86,7 +86,8 @@ class _Tags:
         self.is_planar, = self._get(c_uint16, 284)
         self.image_size = self._get(c_uint32, 257, 256)
         self.tile_size = self._get(c_uint32, 323, 322)
-        self.description = self._get(c_char_p, 270).pop() or b''
+        dscr = self._get(c_char_p, 270)
+        self.description: bytes = dscr and dscr.pop() or b''
         self.resolution = self._get(c_float, 283, 282)
 
     def _get(self, tp: type[ctypes._SimpleCData[_T]], *tags: int) -> list[_T]:
@@ -136,6 +137,7 @@ class _ItemBase(Item):
 
 @dataclass(frozen=True)
 class _Item(_ItemBase):
+    @property
     def key(self) -> str | None:
         if self.tiff.is_svs and self.index == 1:
             return 'thumbnail'
