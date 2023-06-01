@@ -62,26 +62,30 @@ class Lod(Item):
         """Reads whole LOD in single call"""
         return self[:, :]
 
-    def downscale(self, pool: int) -> Lod:
-        if pool == 1:
+    def rescale(self, scale: float) -> Lod:
+        if scale == 1:
             return self
         h, w, c = self.shape
         return ProxyLod(
-            (h // pool, w // pool, c),
-            (self.spacing * pool if self.spacing else None),
-            pool,
+            # TODO: round/ceil/floor ?
+            (round(h * scale), round(w * scale), c),
+            (self.spacing / scale if self.spacing else None),
+            scale,
             self.base if isinstance(self, ProxyLod) else self,
         )
 
 
 @dataclass(frozen=True)
 class ProxyLod(Lod):
-    pool: int
+    scale: float
     base: Lod
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        src_slices = *(slice(s.start * self.pool, s.stop * self.pool)
-                       for s in slices),
+        src_slices = *[
+            # TODO: round/ceil/floor ?
+            slice(round(s.start / self.scale), round(s.stop / self.scale))
+            for s in slices
+        ],
         image = self.base[src_slices]
 
         shape = *((s.stop - s.start) for s in slices),

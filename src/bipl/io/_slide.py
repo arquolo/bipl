@@ -111,13 +111,12 @@ class Slide:
         idx = max(bisect_right(self.pools, pool) - 1, 0)
         return self.pools[idx], self.lods[idx]
 
-    def pool(self, zoom: int) -> Lod:
+    def pool(self, zoom: float) -> Lod:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
-        p, lod = self.best_lod_for(zoom)
+        p, lod = self.best_lod_for(zoom * 1.05)
         if p == zoom:
             return lod
-        assert zoom % p == 0, 'fractional pooling is not supported'
-        return lod.downscale(zoom // p)
+        return lod.rescale(p / zoom)
 
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieves tile"""
