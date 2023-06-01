@@ -295,11 +295,8 @@ class _DecimatedView(_View):
     def __iter__(self) -> Iterator[Tile]:
         for t in self.source:
             vec = *(c // self.stride for c in t.vec),
-            yield Tile(
-                idx=t.idx,
-                vec=vec,  # type: ignore[arg-type]
-                data=t.data[::self.stride, ::self.stride],
-            )
+            data = t.data[::self.stride, ::self.stride]
+            yield Tile(idx=t.idx, vec=vec, data=data)  # type: ignore[arg-type]
 
 
 @dataclass

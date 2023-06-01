@@ -1,14 +1,15 @@
-__all__ = ['get_trapz', 'probs_to_hsv']
+__all__ = ['get_trapz', 'probs_to_rgb_heatmap']
 
 import cv2
 import numpy as np
 
 
-def probs_to_hsv(prob: np.ndarray) -> np.ndarray:
+def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
     """Converts probability array of (H W C) shape to (H W 3) RGB image"""
     assert prob.ndim == 3
+    h, w, c = prob.shape
     if not prob.size:
-        return np.empty((*prob.shape[:2], 3), dtype='u1')
+        return np.empty((h, w, 3), dtype='u1')
 
     hue = prob.argmax(-1).astype('u1')
     value = prob.max(-1)
@@ -16,10 +17,11 @@ def probs_to_hsv(prob: np.ndarray) -> np.ndarray:
         value *= 255
         value = value.round().astype('u1')
 
-    hue_lut = (np.arange(256) * (127 / prob.shape[2])).round().astype('u1')
+    hue_lut = np.zeros(256, 'u1')
+    hue_lut[:c] = np.linspace(0, 127, c, endpoint=False, dtype='u1')
     hsv = cv2.merge([
         cv2.LUT(hue, hue_lut),
-        np.broadcast_to(np.uint8(255), prob.shape[:2]),
+        np.broadcast_to(np.uint8(255), (h, w)),
         value,
     ])
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
