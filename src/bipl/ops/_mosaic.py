@@ -319,7 +319,8 @@ class _TiledArrayView(_View):
 
         mh, mw = (ih * step), (iw * step)
         if mask.shape[:2] != (mh, mw):
-            mask_pad = [(0, s1 - s0) for s0, s1 in zip(mask.shape, (mh, mw))]
+            mask_pad = [(0, max(0, s1 - s0))
+                        for s0, s1 in zip(mask.shape, (mh, mw))]
             mask = np.pad(mask, mask_pad)[:mh, :mw]
 
         if self.m.overlap:
