@@ -190,3 +190,12 @@ class Openslide(Driver):
         OSD.openslide_get_associated_image_dimensions(self.ptr, name, byref(w),
                                                       byref(h))
         return _Item((h.value, w.value, 3), name, self)
+
+    @property
+    def bbox(self) -> tuple[slice, slice]:
+        y, x = (
+            int(self._tags.get(f'openslide.bounds-{ax}', 0)) for ax in 'yx')
+        h, w = (
+            int(self._tags.get(f'openslide.bounds-{ax}', 0)) or None
+            for ax in ('height', 'width'))
+        return slice(y, h), slice(x, w)

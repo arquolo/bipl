@@ -92,6 +92,7 @@ class Slide:
         self.lods = *(lods[pool] for pool in self.pools),
         self.shape = self.lods[0].shape
         self.spacing = self.lods[0].spacing
+        self.bbox = driver.bbox
 
         self.extras |= driver.named_items()
         self.driver = driver_cls.__name__

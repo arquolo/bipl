@@ -122,3 +122,7 @@ class Driver:
     def get(self, key: str) -> Item:
         """Gives named item"""
         raise NotImplementedError
+
+    @property
+    def bbox(self) -> tuple[slice, slice]:
+        return slice(None), slice(None)
