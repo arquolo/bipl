@@ -111,9 +111,9 @@ class Slide:
         idx = max(bisect_right(self.pools, pool) - 1, 0)
         return self.pools[idx], self.lods[idx]
 
-    def pool(self, zoom: float) -> Lod:
+    def pool(self, zoom: float, *, eps: float = 0.01) -> Lod:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
-        p, lod = self.best_lod_for(zoom * 1.05)
+        p, lod = self.best_lod_for(zoom * max(1, 1 + eps))
         if p == zoom:
             return lod
         return lod.rescale(p / zoom)
