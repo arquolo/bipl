@@ -143,16 +143,20 @@ class Openslide(Driver):
         bg_hex = self._tags.get('openslide.background-color', 'FFFFFF')
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
-        self.spacing = None
+        self.spacing = self._spacing()
+
+    def _spacing(self) -> float | None:
         mpp = (self._tags.get(f'openslide.mpp-{ax}') for ax in 'yx')
         if s := [float(m) for m in mpp if m]:
-            self.spacing = float(np.mean(s))
+            return float(np.mean(s))
 
-        # TODO: handle offsets
-        # self.offset = *(int(self._tags.get(f'openslide.bounds-{ax}', 0))
-        #                 for ax in 'yx'),
-        # self.size = *(int(self._tags.get(f'openslide.bounds-{ax}', lim))
-        #               for ax, lim in zip(('height', 'width'), self.shape)),
+        if self._tags.get('tiff.ResolutionUnit') != 'centimeter':
+            return None
+        resolution = (self._tags.get(f'tiff.{ax}Resolution') for ax in 'YX')
+        if s := [(10_000 / float(v)) for v in resolution if v]:
+            return float(np.mean(s))
+
+        return None
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self.ptr.contents):0x})'
