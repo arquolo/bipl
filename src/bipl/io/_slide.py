@@ -19,8 +19,8 @@ from ._tiff import Tiff
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
 
-Openslide.register('bif mrxs ndpi scn svs svsslide tif tiff vms vmu')
-Tiff.register('svs tif tiff')
+Openslide.register(r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$')
+Tiff.register(r'^.*\.(svs|tif|tiff)$')
 
 _MAX_BYTES = int(os.environ.get('GLOW_SLIDE_BYTES') or 102_400)
 
@@ -28,12 +28,12 @@ _MAX_BYTES = int(os.environ.get('GLOW_SLIDE_BYTES') or 102_400)
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
 @memoize(capacity=_MAX_BYTES, policy='lru')  # keep LRU for unused results
-def _cached_open(path: Path) -> Slide:
-    if not path.exists():
-        raise FileNotFoundError(path)
-
-    if tps := REGISTRY.get(path.suffix):
-        last_exc = BaseException()
+def _cached_open(path: str) -> Slide:
+    last_exc = BaseException()
+    matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)
+               for tp in tps_)
+    tps = [*dict.fromkeys(matches)]
+    if tps:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
                 return Slide(path, tp)
@@ -64,14 +64,14 @@ class Slide:
     # TODO: check if memory leak
     # TODO: add __enter__/__exit__/close to make memory management explicit
     # TODO: call .close in finalizer
-    path: Path
+    path: str
     shape: tuple[int, ...]
     spacing: float | None
     pools: tuple[int, ...]
     lods: tuple[Lod, ...]
     extras: dict[str, Item]
 
-    def __init__(self, path: Path, driver_cls: type[Driver]):
+    def __init__(self, path: str, driver_cls: type[Driver]):
         self.path = path
         driver = driver_cls(path)
 
@@ -169,5 +169,6 @@ class Slide:
     @classmethod
     def open(cls, anypath: Path | str) -> Slide:
         """Open multi-scale image."""
-        path = Path(anypath).resolve().absolute()
-        return _cached_open(path)
+        if isinstance(anypath, Path):
+            anypath = Path(anypath).resolve().absolute().as_posix()
+        return _cached_open(anypath)

@@ -19,7 +19,6 @@ from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     create_string_buffer, string_at)
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from threading import Lock
 from typing import NamedTuple, Protocol, TypeVar
 
@@ -228,19 +227,19 @@ class _Lod(Lod, _ItemBase):
 
 # FIXME: Get around slides from choked SVS encoder
 class Tiff(Driver):
-    def __init__(self, path: Path):
+    def __init__(self, path: str):
         # TODO: use memmap instead of libtiff
-        spath = path.as_posix()
         self._ptr = (
-            TIFF.TIFFOpenW(spath, b'rm') if sys.platform == 'win32' else
-            TIFF.TIFFOpen(spath.encode(), b'rm'))
+            TIFF.TIFFOpenW(path, b'rm') if sys.platform == 'win32' else
+            TIFF.TIFFOpen(path.encode(), b'rm'))
         if not self._ptr:
             raise ValueError(f'File {path} cannot be opened')
 
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
 
         self._lock = Lock()
-        self.is_svs = path.suffix == '.svs'  # TODO: parse vendor tags for this
+        # TODO: parse vendor tags instead
+        self.is_svs = path.endswith('.svs')
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'

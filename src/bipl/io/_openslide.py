@@ -14,7 +14,6 @@ from collections.abc import Iterator
 from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int64,
                     c_ubyte, c_void_p)
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -129,8 +128,8 @@ class _Lod(Lod):
 
 
 class Openslide(Driver):
-    def __init__(self, path: Path):
-        self.ptr = OSD.openslide_open(path.as_posix().encode())
+    def __init__(self, path: str):
+        self.ptr = OSD.openslide_open(path.encode())
         if not self.ptr:
             raise ValueError(f'File {path} cannot be opened')
 

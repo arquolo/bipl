@@ -2,14 +2,14 @@ from __future__ import annotations
 
 __all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
 
+import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import final
 
 import cv2
 import numpy as np
 
-REGISTRY: dict[str, list[type[Driver]]] = {}
+REGISTRY: dict[re.Pattern, list[type[Driver]]] = {}
 
 
 def normalize(slices: tuple[slice, ...] | slice,
@@ -95,12 +95,11 @@ class ProxyLod(Lod):
 class Driver:
     @final
     @classmethod
-    def register(cls, extensions: str):
+    def register(cls, regex: str):
         """Registers type builder for extensions. Last call takes precedence"""
-        for ext in extensions.split():
-            REGISTRY.setdefault(f'.{ext}', []).append(cls)
+        REGISTRY.setdefault(re.compile(regex), []).append(cls)
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: str) -> None:
         raise NotImplementedError
 
     def __len__(self) -> int:
