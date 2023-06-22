@@ -9,7 +9,7 @@ from typing import final
 
 import cv2
 import numpy as np
-from glow import memoize
+from glow import memoize, shared_call, weak_memoize
 
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Item, Lod, normalize
@@ -25,7 +25,9 @@ Tiff.register('svs tif tiff')
 _MAX_BYTES = int(os.environ.get('GLOW_SLIDE_BYTES') or 102_400)
 
 
-@memoize(capacity=_MAX_BYTES, policy='lru')
+@shared_call  # merge duplicate calls
+@weak_memoize  # reuse result if it's already exist, but used by someone else
+@memoize(capacity=_MAX_BYTES, policy='lru')  # keep LRU for unused results
 def _cached_open(path: Path) -> Slide:
     if not path.exists():
         raise FileNotFoundError(path)
