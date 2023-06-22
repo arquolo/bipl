@@ -37,7 +37,7 @@ def _cached_open(path: str) -> Slide:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
                 return Slide(path, tp)
-            except ValueError as exc:
+            except (ValueError, TypeError) as exc:
                 last_exc = exc
         raise last_exc from None
     raise ValueError(f'Unknown file format {path}')
@@ -79,7 +79,8 @@ class Slide:
         assert num_items > 0
 
         item_0, *items = (driver[idx] for idx in range(num_items))
-        assert isinstance(item_0, Lod)
+        if not isinstance(item_0, Lod):
+            raise TypeError('First pyramid layer is not tiled')
 
         lods: dict[int, Lod] = {1: item_0}
         self.extras: dict[str, Item] = {}
