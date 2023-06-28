@@ -86,6 +86,7 @@ class ProxyLod(Lod):
             slice(round(s.start / self.scale), round(s.stop / self.scale))
             for s in slices
         ],
+        # TODO: read base part-by-part, not all at once, if scale > 2(?)
         image = self.base[src_slices]
 
         shape = *((s.stop - s.start) for s in slices),

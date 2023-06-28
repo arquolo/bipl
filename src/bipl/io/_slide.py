@@ -19,8 +19,19 @@ from ._tiff import Tiff
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
 
-Openslide.register(r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$')
-Tiff.register(r'^.*\.(svs|tif|tiff)$')
+try:
+    from ._gdal import Gdal
+except ImportError:
+    Gdal = None  # type: ignore[assignment,misc]
+
+for _drv, _regex in [  # LIFO, last driver takes priority
+    (Gdal, r'^.*\.(tif|tiff)$'),
+    (Openslide, r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
+    (Tiff, r'^.*\.(svs|tif|tiff)$'),
+    (Gdal, r'^(/vsicurl.*|(http|https)://.*)$'),
+]:
+    if _drv is not None:
+        _drv.register(_regex)
 
 _MAX_BYTES = int(os.environ.get('GLOW_SLIDE_BYTES') or 102_400)
 
@@ -92,6 +103,7 @@ class Slide:
                 self.extras[key] = item
 
         self.pools = *sorted(lods.keys()),
+        # TODO: create virtual lods if pools are too distant (ProxyLod?)
         self.lods = *(lods[pool] for pool in self.pools),
         self.shape = self.lods[0].shape
         self.spacing = self.lods[0].spacing

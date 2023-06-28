@@ -337,6 +337,7 @@ class Tiff(Driver):
     def _bg_color(self) -> np.ndarray:
         bg_hex = b'FFFFFF'
         bg_color_ptr = c_char_p()
+        # TODO: find sample file to test this path. Never reached
         if TIFF.TIFFGetField(self._ptr, _Tag.BACKGROUND_COLOR,
                              byref(bg_color_ptr)):
             bg_hex = string_at(bg_color_ptr, 3)
