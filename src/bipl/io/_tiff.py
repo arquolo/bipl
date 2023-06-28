@@ -28,6 +28,7 @@ import numpy as np
 
 from ._libs import load_library
 from ._slide_bases import Driver, Item, Lod
+from ._util import is_aperio, parse_aperio_description
 
 _T = TypeVar('_T')
 
@@ -39,10 +40,31 @@ TIFF = load_library('libtiff', 6, 5)
 
 
 # ---------------------------- TIFF tags mappings ----------------------------
-class _Colorspace(Enum):
+class _ColorSpace(Enum):
     MINISBLACK = 1
     RGB = 2
-    # YCBCR = 6
+    YCBCR = 6
+
+
+class _ColorInfo(NamedTuple):
+    space: _ColorSpace
+    subsampling: tuple[int, int]
+
+    def to_rgb(self, x: np.ndarray) -> np.ndarray:
+        if self.space is not _ColorSpace.YCBCR or self.subsampling != (2, 2):
+            return x
+
+        h, w = x.shape[:2]
+        assert h % 2 == w % 2 == 0
+
+        # (2 h/2) w 3 -> h/2 w 3
+        # h/2 (w/2 2) 3 -> h/2 w/2 2 3 -> h/2 w/2 (2 3) -> h/2 w/2 6
+        hw6 = x[:h // 2, :, :].reshape(h // 2, w // 2, 6)
+
+        # y00, y01, y10, y11, cb, cr
+        y = hw6[:, :, [[0, 1], [2, 3]]].transpose(0, 2, 1, 3).reshape(h, w)
+        cb_cr = hw6[:, :, [4, 5]]
+        return cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
 
 
 class _Compression(Enum):
@@ -79,23 +101,80 @@ class _Tag:  # noqa: PIE795,RUF100
 class _Tags:
     def __init__(self, ptr):
         self._ptr = ptr
-        self.compression, = self._get(c_uint16, 259)
-        self.colorspace, = self._get(c_uint16, 262)
+        compression, = self._get(c_uint16, 259)
+        self.compression = _Compression(compression)
+
         self.spp, = self._get(c_uint16, 277)
         self.is_planar, = self._get(c_uint16, 284)
         self.image_size = self._get(c_uint32, 257, 256)
         self.tile_size = self._get(c_uint32, 323, 322)
-        dscr = self._get(c_char_p, 270)
-        self.description: bytes = dscr and dscr.pop() or b''
+        self.description = self._get_str(270)
         self.resolution = self._get(c_float, 283, 282)
 
-    def _get(self, tp: type[ctypes._SimpleCData[_T]], *tags: int) -> list[_T]:
-        values = []
+        # ! crashes, but should work according to openslide docs
+        # self.is_hamamatsu = bool(self._get(c_uint16, 65420))
+        self.make = self._get_str(271)
+
+        self.bps, = self._get(c_uint16, 339) or [1]
+
+        ics, = self._get(c_uint16, 262)
+        colorspace = _ColorSpace(ics)
+        subsampling = (1, 1)
+
+        # TODO: use this in YCbCr conversion
+        self.gray = np.array([], 'f4')  # Luma coefficients
+        self.yuv_centered = True
+        self.yuv_bw = np.array([], 'f4')  # BW pairs, per channel
+
+        if colorspace is _ColorSpace.YCBCR:
+            self.gray = np.array([.299, .587, .114], 'f4')
+            gray_ptr = POINTER(c_float)()
+            if TIFF.TIFFGetField(self._ptr, 529, byref(gray_ptr)):
+                self.gray = np.ctypeslib.as_array(gray_ptr, [3]).copy()
+
+            # YCbCr subsampling H/W, i.e:
+            # 24bps:
+            #  (1 1) = 4:4:4 (cccc/cccc), 100% H, 100% W
+            # 16bps:
+            #  (1 2) = 4:2:2 (c_c_/c_c_), 100% H, 50% W
+            #  (2 1) = 4:4:0 (cccc/____), 50% H, 100% W
+            # 12bps:
+            #  (1 4) = 4:1:1 (c___/c___), 100% H, 25% W
+            #  (2 2) = 4:2:0 (c_c_/____), 50% H, 50% W - a.k.a. YUV-NV12
+            # 10bps:
+            #  (2 4) = 4:1:0 (c___/____), 50% H, 25% W
+            ss_w, ss_h = self._get_varargs((c_uint16, c_uint16), 530) or (2, 2)
+            subsampling = ss_h, ss_w
+
+            self.yuv_centered = 2 not in self._get(c_uint16, 531)
+
+            bw_ptr = POINTER(c_float)()
+            if TIFF.TIFFGetField(self._ptr, 532, byref(bw_ptr)):
+                self.yuv_bw = np.ctypeslib.as_array(bw_ptr, [3, 2])
+
+        self.color = _ColorInfo(colorspace, subsampling)
+
+    def _get(self, tp: type[ctypes._SimpleCData[_T]],
+             *tags: int) -> tuple[_T, ...]:
+        values: list[_T] = []
         for tag in tags:
             cv = tp()
             if TIFF.TIFFGetField(self._ptr, c_uint32(tag), byref(cv)):
                 values.append(cv.value)
-        return values
+        return *values,
+
+    def _get_str(self, tag: int) -> str:
+        values = self._get(c_char_p, tag)
+        if not values:
+            return ''
+        return (values[0] or b'').decode()
+
+    def _get_varargs(self, tps: tuple[type[ctypes._SimpleCData[_T]], ...],
+                     tag: int) -> tuple[_T, ...]:
+        cvs = *(tp() for tp in tps),
+        if TIFF.TIFFGetField(self._ptr, c_uint32(tag), *map(byref, cvs)):
+            return *(cv.value for cv in cvs),
+        return ()
 
 
 # -------------------------- lazy decoding proxies ---------------------------
@@ -128,7 +207,8 @@ class _ItemBase(Item):
     tiff: Tiff
     head: list[str]
     meta: dict[str, str]  # unused
-    colorspace: _Colorspace
+    vendor: str
+    color: _ColorInfo
     bg_color: np.ndarray
     compression: _Compression
     jpt: bytes = field(repr=False)
@@ -138,7 +218,7 @@ class _ItemBase(Item):
 class _Item(_ItemBase):
     @property
     def key(self) -> str | None:
-        if self.tiff.is_svs and self.index == 1:
+        if self.vendor == 'aperio' and self.index == 1:
             return 'thumbnail'
         for key in ('label', 'macro'):
             if any(key in s for s in self.head):
@@ -183,13 +263,13 @@ class _Lod(Lod, _ItemBase):
             isok = TIFF.TIFFReadTile(ptr, c_void_p(image.ctypes.data), x, y, 0,
                                      0)
             assert isok != -1
-            return image
+            return self.color.to_rgb(image)
 
         data = create_string_buffer(nbytes)
         TIFF.TIFFReadRawTile(ptr, offset, data, len(data))
 
         if self.jpt:
-            return JpegArray(data, self.jpt, self.colorspace.value)
+            return JpegArray(data, self.jpt, self.color.space.value)
         return ImageArray(data)
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
@@ -238,8 +318,6 @@ class Tiff(Driver):
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
 
         self._lock = Lock()
-        # TODO: parse vendor tags instead
-        self.is_svs = path.endswith('.svs')
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
@@ -265,21 +343,23 @@ class Tiff(Driver):
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1')
 
-    def _parse_description(self,
-                           desc: str) -> tuple[list[str], dict[str, str]]:
-        head, *rest = desc.split('|')
-        heads = [s.strip() for s in head.splitlines()]
+    def _parse_description(self, desc: str,
+                           make: str) -> tuple[str, list[str], dict[str, str]]:
+        vendor = ''
+        if is_aperio(desc):
+            vendor = 'aperio'
+            head, meta = parse_aperio_description(desc)
 
-        meta = {}
-        for s in rest:
-            if len(tags := s.split('=', 1)) == 2:
-                meta[tags[0].strip()] = tags[1].strip()
-            else:
-                raise ValueError(f'Unparseable line in description: {s!r}')
+        else:
+            if make == 'Hamamatsu':
+                raise ValueError('Hamamatsu is not yet supported via libtiff')
+            # TODO: put xml parser here (tiff)
+            head = [desc]
+            meta = {}
 
-        return heads, meta
+        return vendor, head, meta
 
-    def _spacing(self, resolution: list[float],
+    def _spacing(self, resolution: tuple[float, ...],
                  meta: dict[str, str]) -> float | None:
         if s := [(10_000 / v) for v in resolution if v]:
             return float(np.mean(s))
@@ -294,15 +374,18 @@ class Tiff(Driver):
             raise TypeError(f'Level {index} is not contiguous!')
 
         bg_color = self._bg_color()
-        head, meta = self._parse_description(tags.description.decode())
-        spacing = self._spacing(tags.resolution, meta)
+        vendor, head, meta = self._parse_description(tags.description,
+                                                     tags.make)
+        spacing = self._spacing(tags.resolution, meta) if index == 0 else None
 
-        colorspace = _Colorspace(tags.colorspace)
+        if (tags.color.space is _ColorSpace.YCBCR
+                and tags.color.subsampling != (2, 2)):
+            raise ValueError('Unsupported YUV subsampling: '
+                             f'{tags.color.subsampling}')
 
         # Compression and JPEG tables
         jpt = b''
-        compression = _Compression(tags.compression)
-        if compression is _Compression.JPEG:
+        if tags.compression is _Compression.JPEG:
             count = c_int()
             jpt_ptr = c_char_p()
             if TIFF.TIFFGetField(self._ptr, _Tag.JPEG_TABLES, byref(count),
@@ -317,8 +400,8 @@ class Tiff(Driver):
 
         # Tile shape, if applicable
         if not TIFF.TIFFIsTiled(self._ptr):  # Not yet supported
-            return _Item(shape, index, self, head, meta, colorspace, bg_color,
-                         compression, jpt)
+            return _Item(shape, index, self, head, meta, vendor, tags.color,
+                         bg_color, tags.compression, jpt)
 
         # Tile sizes
         tile = (*tags.tile_size, tags.spp)
@@ -332,10 +415,10 @@ class Tiff(Driver):
             tbc = np.ctypeslib.as_array(tbc_ptr, [num_tiles]).copy()
             # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
             if (tbc == 0).any():
-                raise ValueError('Tiles are corrupted as their sizes have 0s')
+                raise ValueError('Found 0s in tile size table')
 
-        return _Lod(shape, index, self, head, meta, colorspace, bg_color,
-                    compression, jpt, spacing, tile, tbc)
+        return _Lod(shape, index, self, head, meta, vendor, tags.color,
+                    bg_color, tags.compression, jpt, spacing, tile, tbc)
 
     def __getitem__(self, index: int) -> Item:
         with self.ifd(index):
