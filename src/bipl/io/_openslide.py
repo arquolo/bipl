@@ -23,7 +23,10 @@ from ._slide_bases import Driver, Item, Lod
 
 OSD = load_library('libopenslide', 0)
 
-OSD.openslide_open.restype = POINTER(c_ubyte)
+sptr = POINTER(c_ubyte)
+OSD.openslide_open.restype = sptr
+OSD.openslide_close.argtypes = [sptr]
+
 OSD.openslide_get_error.restype \
     = OSD.openslide_get_property_value.restype \
     = c_char_p
@@ -33,6 +36,10 @@ OSD.openslide_get_property_names.restype \
     = POINTER(c_char_p)
 
 OSD.openslide_get_level_downsample.restype = c_double
+OSD.openslide_read_associated_image.argtypes = [sptr, c_char_p, c_void_p]
+OSD.openslide_read_region.argtypes = [
+    sptr, c_void_p, c_int64, c_int64, c_int64, c_int64, c_int64
+]
 
 
 def _ntas_to_iter(null_terminated_array_of_strings) -> Iterator[bytes]:
