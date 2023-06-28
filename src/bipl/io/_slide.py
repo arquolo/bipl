@@ -106,7 +106,7 @@ class Slide:
     def __repr__(self) -> str:
         line = f"'{self.path}', shape={self.shape}, pools={self.pools}"
         if self.spacing:
-            line += f', spacing={self.spacing}'
+            line += f', spacing={self.spacing:.4f}'
         line += f', driver={self.driver}'
         return f'{type(self).__name__}({line})'
 

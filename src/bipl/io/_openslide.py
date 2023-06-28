@@ -20,6 +20,7 @@ import numpy as np
 
 from ._libs import load_library
 from ._slide_bases import Driver, Item, Lod
+from ._util import unflatten
 
 OSD = load_library('libopenslide', 0)
 
@@ -144,22 +145,28 @@ class Openslide(Driver):
             raise ValueError(err)
         weakref.finalize(self, OSD.openslide_close, self.ptr)
 
-        self._tags = self._get_metadata()
+        meta = self._get_metadata()
+        self.meta = unflatten(meta)
+        self.osd_meta: dict = self.meta.get('openslide', {})
 
-        bg_hex = self._tags.get('openslide.background-color', 'FFFFFF')
+        bg_hex = self.osd_meta.get('background-color', 'FFFFFF')
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
         self.spacing = self._spacing()
 
     def _spacing(self) -> float | None:
-        mpp = (self._tags.get(f'openslide.mpp-{ax}') for ax in 'yx')
+        mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
         if s := [float(m) for m in mpp if m]:
             return float(np.mean(s))
 
-        if self._tags.get('tiff.ResolutionUnit') != 'centimeter':
+        tiff_meta = self.meta.get('tiff', {})
+        unit: str = tiff_meta.get('ResolutionUnit', '')
+        unit_base = {'centimeter': 10_000, 'inch': 2_540}.get(unit)
+        if unit_base is None:
             return None
-        resolution = (self._tags.get(f'tiff.{ax}Resolution') for ax in 'YX')
-        if s := [(10_000 / float(v)) for v in resolution if v]:
+
+        resolution = (tiff_meta.get(f'{t}Resolution') for t in ('Y', 'X'))
+        if s := [(unit_base / float(v)) for v in resolution if v]:
             return float(np.mean(s))
 
         return None
@@ -180,11 +187,11 @@ class Openslide(Driver):
     def __getitem__(self, index: int) -> Lod:
         h, w = c_int64(), c_int64()
         OSD.openslide_get_level_dimensions(self.ptr, index, byref(w), byref(h))
-        pool = OSD.openslide_get_level_downsample(self.ptr, index)
+        pool: float = OSD.openslide_get_level_downsample(self.ptr, index)
         assert pool > 0
 
-        return _Lod((h.value, w.value, 3), self.spacing, round(pool), index,
-                    self)
+        spacing = self.spacing if index == 0 else None
+        return _Lod((h.value, w.value, 3), spacing, round(pool), index, self)
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)
@@ -199,9 +206,11 @@ class Openslide(Driver):
 
     @property
     def bbox(self) -> tuple[slice, slice]:
-        y, x = (
-            int(self._tags.get(f'openslide.bounds-{ax}', 0)) for ax in 'yx')
-        h, w = (
-            int(self._tags.get(f'openslide.bounds-{ax}', 0)) or None
-            for ax in ('height', 'width'))
-        return slice(y, h), slice(x, w)
+        bbox = (
+            self.osd_meta.get(f'bounds-{t}')
+            for t in ('y', 'x', 'height', 'width'))
+        y0, x0, h, w = (
+            int(s) if s and s.strip().isdigit() else None for s in bbox)
+        y1, x1 = (o + s if o is not None and s is not None else None
+                  for o, s in [(y0, h), (x0, w)])
+        return slice(y0, y1), slice(x0, x1)
