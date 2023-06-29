@@ -333,6 +333,27 @@ class _TiledArrayView(_View):
         cells = mask.reshape(ih, step, iw, step).any((1, 3))
         return dataclasses.replace(self, cells=cells)
 
+    def _slice_tile(self, iy: int, ix: int) -> Tile:
+        """Slice source image to get overlapping tiles"""
+        (y0, y1), (x0, x1) = ((
+            self.m.step * i - self.m.overlap,
+            self.m.step * (i + 1),
+        ) for i in (iy, ix))
+
+        y0_u = max(y0, 0)
+        x0_u = max(x0, 0)
+        data = self.data[y0_u:y1, x0_u:x1]
+        pad = [
+            (y0_u - y0, y1 - y0_u - data.shape[0]),
+            (x0_u - x0, x1 - x0_u - data.shape[1]),
+            (0, 0),
+        ]
+        return Tile(
+            idx=(iy, ix),
+            vec=(y0, x0),
+            data=np.pad(data, pad),
+        )
+
     def _get_tile(self, iy: int, ix: int) -> Tile:
         """Read non-overlapping tile of source image"""
         (y0, y1), (x0, x1) = ((
@@ -384,6 +405,9 @@ class _TiledArrayView(_View):
         Each tile will have size `(step + overlap)`
         """
         ys, xs = np.where(self.cells)
+        if isinstance(self.data, np.ndarray):
+            return map(self._slice_tile, ys, xs)
+
         parts = map_n(self._get_tile, ys, xs, max_workers=self.max_workers)
         return self._rejoin_tiles(parts) if self.m.overlap else iter(parts)
 
