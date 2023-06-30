@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
+from bipl import env
+
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Item, Lod, normalize
 from ._tiff import Tiff
@@ -24,21 +26,20 @@ try:
 except ImportError:
     Gdal = None  # type: ignore[assignment,misc]
 
+_drv: type[Driver] | None
 for _drv, _regex in [  # LIFO, last driver takes priority
     (Gdal, r'^.*\.(tif|tiff)$'),
     (Openslide, r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
     (Tiff, r'^.*\.(svs|tif|tiff)$'),
     (Gdal, r'^(/vsicurl.*|(http|https)://.*)$'),
 ]:
-    if _drv is not None:
+    if _drv is not None and _drv.__name__.lower() in env.BIPL_DRIVERS:
         _drv.register(_regex)
-
-_MAX_BYTES = int(os.environ.get('GLOW_SLIDE_BYTES') or 102_400)
 
 
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
-@memoize(capacity=_MAX_BYTES, policy='lru')  # keep LRU for unused results
+@memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
 def _cached_open(path: str) -> Slide:
     last_exc = BaseException()
     matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)

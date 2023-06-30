@@ -40,6 +40,7 @@ dependencies = [
     "lxml",
     "numpy~=1.21",
     "opencv-python~=4.0",
+    "pydantic~=1.2",
     "tqdm",
 ]
 
@@ -48,7 +49,6 @@ gdal = [
     # For Windows, pick GDAL from here https://www.lfd.uci.edu/~gohlke/pythonlibs/#gdal and install manually
     # "gdal @ https://download.lfd.uci.edu/pythonlibs/archived/GDAL-3.4.3-cp310-cp310-win_amd64.whl ; python_version == '3.10' and platform_system == 'Windows'",
     "gdal~=3.4.3",
-    "pydantic~=1.2",
 ]
 dev-core = [
     "flake8~=6.0.0",
