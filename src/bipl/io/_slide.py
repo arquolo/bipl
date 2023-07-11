@@ -6,6 +6,7 @@ import os
 from bisect import bisect_right
 from pathlib import Path
 from typing import final
+from warnings import warn
 
 import cv2
 import numpy as np
@@ -24,6 +25,16 @@ from ._tiff import Tiff
 try:
     from ._gdal import Gdal
 except ImportError:
+    if not os.getenv('_BIPL_GDAL_NO_WARN'):
+        msg = 'No GDAL is available. Please '
+        if os.name == 'nt':
+            msg += ('acquire it manually from '
+                    'https://www.lfd.uci.edu/~gohlke/pythonlibs/#gdal ')
+        else:
+            msg += ('install libgdal via your system package manager, '
+                    'and run "pip install gdal==`gdal-config --version`"')
+        warn(msg, stacklevel=1)
+        os.environ['_BIPL_GDAL_NO_WARN'] = '1'
     Gdal = None  # type: ignore[assignment,misc]
 
 _drv: type[Driver] | None
