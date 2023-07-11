@@ -39,7 +39,7 @@ dependencies = [
     "imagecodecs",
     "lxml",
     "numpy~=1.21",
-    "opencv-python~=4.0",
+    "opencv-python-headless~=4.0",
     "pydantic~=1.2",
     "tqdm",
 ]
