@@ -89,8 +89,8 @@ class ProxyLod(Lod):
         # TODO: read base part-by-part, not all at once, if scale > 2(?)
         image = self.base[src_slices]
 
-        shape = *((s.stop - s.start) for s in slices),
-        return cv2.resize(image, shape[::-1], interpolation=cv2.INTER_AREA)
+        h, w = ((s.stop - s.start) for s in slices)
+        return cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
 
 
 class Driver:

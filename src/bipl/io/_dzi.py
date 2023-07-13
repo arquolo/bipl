@@ -43,6 +43,6 @@ class Dzi(NamedTuple):
         if qtag is None:
             raise RuntimeError(f'Unknown format: {self.fmt}')
 
-        bgr = rgb[..., ::-1]
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         _, data = cv2.imencode(f'.{self.fmt}', bgr, [qtag, self.quality])
         return data.tobytes()

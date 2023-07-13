@@ -205,17 +205,13 @@ class JpegArray(NamedTuple):
 class _ItemBase(Item):
     index: int
     tiff: Tiff
-    head: list[str]
-    meta: dict[str, str]  # unused
-    vendor: str
-    color: _ColorInfo
-    bg_color: np.ndarray
-    compression: _Compression
-    jpt: bytes = field(repr=False)
 
 
 @dataclass(frozen=True)
 class _Item(_ItemBase):
+    head: list[str]
+    vendor: str
+
     @property
     def key(self) -> str | None:
         if self.vendor == 'aperio' and self.index == 1:
@@ -227,20 +223,25 @@ class _Item(_ItemBase):
 
     def __array__(self) -> np.ndarray:
         h, w = self.shape[:2]
-        bgra = np.empty((h, w, 4), dtype='u1')
+        rgba = np.empty((h, w, 4), dtype='u1')
 
         with self.tiff.ifd(self.index) as ptr:
-            ok = TIFF.TIFFReadRGBAImage(ptr, w, h, c_void_p(bgra.ctypes.data),
-                                        0)
+            ok = TIFF.TIFFReadRGBAImageOriented(ptr, w, h,
+                                                c_void_p(rgba.ctypes.data), 1,
+                                                0)
             assert ok
 
-        bgra = cv2.cvtColor(bgra, cv2.COLOR_mRGBA2RGBA)
+        rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        return bgra[..., 2::-1]
+        return rgba[..., :3]
 
 
 @dataclass(frozen=True)
 class _Lod(Lod, _ItemBase):
+    color: _ColorInfo
+    bg_color: np.ndarray
+    compression: _Compression
+    jpt: bytes = field(repr=False)
     tile: tuple[int, ...]
     tile_sizes: np.ndarray = field(repr=False)
 
@@ -401,8 +402,7 @@ class Tiff(Driver):
 
         # Tile shape, if applicable
         if not TIFF.TIFFIsTiled(self._ptr):  # Not yet supported
-            return _Item(shape, index, self, head, meta, vendor, tags.color,
-                         bg_color, tags.compression, jpt)
+            return _Item(shape, index, self, head, vendor)
 
         # Tile sizes
         tile = (*tags.tile_size, tags.spp)
@@ -418,8 +418,8 @@ class Tiff(Driver):
             if (tbc == 0).any():
                 raise ValueError('Found 0s in tile size table')
 
-        return _Lod(shape, index, self, head, meta, vendor, tags.color,
-                    bg_color, tags.compression, jpt, spacing, tile, tbc)
+        return _Lod(shape, index, self, spacing, tags.color, bg_color,
+                    tags.compression, jpt, tile, tbc)
 
     def __getitem__(self, index: int) -> Item:
         with self.ifd(index):
