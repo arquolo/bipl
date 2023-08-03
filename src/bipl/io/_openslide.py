@@ -103,36 +103,25 @@ class _Lod(Lod):
     osd: Openslide
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        (y_min2, y_max2), (x_min2, x_max2) = box_ \
-            = [(s.start, s.stop) for s in slices]  # noqa: UP027
-        box = np.array(box_)
-        valid_box = box.T.clip([0, 0], self.shape[:2]).T
+        box, valid_box, shape = self._unpack_loc(slices)
 
-        (y_min, y_max), (x_min, x_max) = valid_box
-        if y_min == y_max or x_min == x_max:  # Patch is outside slide
-            return np.broadcast_to(self.osd.bg_color,
-                                   (y_max2 - y_min2, x_max2 - x_min2, 3))
+        (y0, y1), (x0, x1) = valid_box
+        if y0 == y1 or x0 == x1:  # Patch is outside slide
+            return np.broadcast_to(self.osd.bg_color, (*shape, 3))
 
-        bgra = np.empty((y_max - y_min, x_max - x_min, 4), dtype='u1')
+        bgra = np.empty((y1 - y0, x1 - x0, 4), dtype='u1')
         OSD.openslide_read_region(
             self.osd.ptr,
             c_void_p(bgra.ctypes.data),
-            int(x_min * self.pool),
-            int(y_min * self.pool),
+            int(x0 * self.pool),
+            int(y0 * self.pool),
             self.index,
-            int(x_max - x_min),
-            int(y_max - y_min),
+            int(x1 - x0),
+            int(y1 - y0),
         )
-
         rgb = _mbgra_to_rgb(bgra, self.osd.bg_color)
 
-        offsets = np.abs(valid_box - box).ravel().tolist()
-        if any(offsets):
-            bg_color = self.osd.bg_color.tolist()
-            return cv2.copyMakeBorder(
-                rgb, *offsets, borderType=cv2.BORDER_CONSTANT, value=bg_color)
-
-        return np.ascontiguousarray(rgb)
+        return self._expand(rgb, valid_box, box, self.osd.bg_color)
 
 
 class Openslide(Driver):

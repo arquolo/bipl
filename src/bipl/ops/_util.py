@@ -1,4 +1,4 @@
-__all__ = ['get_trapz', 'probs_to_rgb_heatmap']
+__all__ = ['get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap']
 
 import cv2
 import numpy as np
@@ -32,3 +32,17 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
     assert overlap
     pad = np.linspace(0, 1, overlap + 2)[1:-1]  # strip initial 0 and final 1
     return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
+
+
+def normalize_loc(slices: tuple[slice, ...] | slice,
+                  shape: tuple[int, ...]) -> tuple[slice, ...]:
+    """Ensures slices match shape and have non-none endpoints"""
+    if isinstance(slices, slice):
+        slices = slices,
+    slices += (slice(None), ) * max(0, len(shape) - len(slices))
+    assert len(slices) == len(shape)
+    return *(slice(
+        s.start if s.start is not None else 0,
+        s.stop if s.stop is not None else axis_len,
+        s.step if s.step is not None else 1,
+    ) for s, axis_len in zip(slices, shape)),

@@ -13,9 +13,10 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
+from bipl.ops import normalize_loc
 
 from ._openslide import Openslide
-from ._slide_bases import REGISTRY, Driver, Item, Lod, normalize
+from ._slide_bases import REGISTRY, Driver, Item, Lod
 from ._tiff import Tiff
 
 # TODO: inside Slide.open import ._slide.registry,
@@ -149,21 +150,22 @@ class Slide:
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieves tile"""
         # TODO: Ignore step, always redirect to self.lods[0].__getitem__
-        slices = normalize(key, self.shape)
+        y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
 
-        step0, step1 = (s.step for s in slices)
+        step0, step1 = y_loc.step, x_loc.step
         if step0 != step1:
             raise ValueError('slice steps should be the same for each axis')
         if step0 <= 0:
             raise ValueError('slice steps should be positive')
 
         pool, lod = self.best_lod_for(step0)
-        slices = *(slice(s.start // pool, s.stop // pool) for s in slices),
-        image = lod.crop(slices)
+        yx_loc = *(slice(s.start // pool, s.stop // pool)
+                   for s in (y_loc, x_loc)),
+        image = lod.crop(yx_loc)
 
         ratio = pool / step0
         dsize = *(round(ratio * s) for s in image.shape[:2]),
-        return _fit_to(image, dsize)
+        return _fit_to(image, dsize)[:, :, c_loc]
 
     def at(self,
            z0_yx_offset: tuple[int, ...],

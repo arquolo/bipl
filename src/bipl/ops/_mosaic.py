@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from glow import chunked, map_n
 
-from ._util import get_trapz
+from ._util import get_trapz, normalize_loc
 
 Vec = tuple[int, int]
 
@@ -72,6 +72,17 @@ def _crop(tiles: Iterable[Tile], shape: tuple[int, ...]) -> Iterator[Tile]:
             vec=(y, x),
             data=tile[:h - y, :w - x],
         )
+
+
+def _padslice(a: NumpyLike, loc: tuple[slice, ...]) -> np.ndarray:
+    loc = normalize_loc(loc, a.shape)
+
+    pos_loc = *(slice(max(s.start, 0), s.stop) for s in loc),
+    a = a[pos_loc]
+
+    pad = [(pos.start - raw.start, pos.stop - pos.start - size)
+           for raw, pos, size in zip(loc, pos_loc, a.shape)]
+    return np.pad(a, pad) if np.any(pad) else a
 
 
 def get_fusion(tiles: Iterable[Tile],
@@ -340,19 +351,8 @@ class _TiledArrayView(_View):
             self.m.step * (i + 1),
         ) for i in (iy, ix))
 
-        y0_u = max(y0, 0)
-        x0_u = max(x0, 0)
-        data = self.data[y0_u:y1, x0_u:x1]
-        pad = [
-            (y0_u - y0, y1 - y0_u - data.shape[0]),
-            (x0_u - x0, x1 - x0_u - data.shape[1]),
-            (0, 0),
-        ]
-        return Tile(
-            idx=(iy, ix),
-            vec=(y0, x0),
-            data=np.pad(data, pad),
-        )
+        data = _padslice(self.data, (slice(y0, y1), slice(x0, x1)))
+        return Tile(idx=(iy, ix), vec=(y0, x0), data=data)
 
     def _get_tile(self, iy: int, ix: int) -> Tile:
         """Read non-overlapping tile of source image"""
@@ -410,6 +410,10 @@ class _TiledArrayView(_View):
 
         parts = map_n(self._get_tile, ys, xs, max_workers=self.max_workers)
         return self._rejoin_tiles(parts) if self.m.overlap else iter(parts)
+
+    def get_tile(self, idx: int) -> Tile:
+        iy, ix = np.argwhere(self.cells)[idx]
+        return self._slice_tile(iy, ix)
 
 
 @dataclass

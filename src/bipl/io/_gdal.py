@@ -52,24 +52,22 @@ class _Lod(Lod):
     bands: tuple[gdal.Band, ...]
 
     def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        (y_min2, y_max2), (x_min2, x_max2) = box_ \
-            = [(s.start, s.stop) for s in slices]  # noqa: UP027
-        box = np.array(box_, int)
-        valid_box = box.T.clip([0, 0], self.shape[:2]).T.tolist()
+        box, valid_box, shape = self._unpack_loc(slices)
 
-        (y_min, y_max), (x_min, x_max) = valid_box
-        if y_min == y_max or x_min == x_max:  # Patch is outside slide
+        (y0, y1), (x0, x1) = valid_box.tolist()
+        if y0 == y1 or x0 == x1:  # Patch is outside slide
             return np.broadcast_to(self.g.bg_color,
-                                   (y_max2 - y_min2, x_max2 - x_min2, 3))
+                                   shape)
 
-        h, w = y_max - y_min, x_max - x_min
+        h, w = y1 - y0, x1 - x0
         c = self.g.num_channels
         chw = np.empty((c, h, w), 'u1')
 
         with self.g.lock:
             for b, hw in zip(self.bands, np.split(chw, c, 0)):
-                gdal_array.BandReadAsArray(b, x_min, y_min, w, h, buf_obj=hw)
+                gdal_array.BandReadAsArray(b, x0, y0, w, h, buf_obj=hw)
 
+        # TODO: add pad if necessary
         return chw.transpose(1, 2, 0)
 
 

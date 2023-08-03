@@ -9,20 +9,9 @@ from typing import final
 import cv2
 import numpy as np
 
+from bipl.ops import normalize_loc
+
 REGISTRY: dict[re.Pattern, list[type[Driver]]] = {}
-
-
-def normalize(slices: tuple[slice, ...] | slice,
-              shape: tuple[int, ...]) -> tuple[slice, ...]:
-    """Ensures slices to be exactly 2 slice with non-none endpoints"""
-    if isinstance(slices, slice):
-        slices = slices, slice(None)
-    assert len(slices) == 2
-    return *(slice(
-        s.start if s.start is not None else 0,
-        s.stop if s.stop is not None else axis_len,
-        s.step if s.step is not None else 1,
-    ) for s, axis_len in zip(slices, shape)),
 
 
 @dataclass(frozen=True)
@@ -53,9 +42,9 @@ class Lod(Item):
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Reads crop of LOD"""
-        slices = normalize(key, self.shape)
-        assert all(s.step == 1 for s in slices)
-        return self.crop(slices)
+        (y_loc, x_loc, c_loc) = normalize_loc(key, self.shape)
+        assert y_loc.step == x_loc.step == 1
+        return self.crop((y_loc, x_loc))[:, :, c_loc]
 
     @final
     def __array__(self) -> np.ndarray:
@@ -73,6 +62,24 @@ class Lod(Item):
             scale,
             self.base if isinstance(self, ProxyLod) else self,
         )
+
+    def _unpack_loc(
+        self,
+        slices: tuple[slice, ...],
+    ) -> tuple[np.ndarray, np.ndarray, list[int]]:
+        box = np.array([(s.start, s.stop) for s in slices])
+        valid_box = box.T.clip([0, 0], self.shape[:2]).T  # (2, lo-hi)
+        shape = (box[:, 1] - box[:, 0]).tolist()
+        return box, valid_box, shape
+
+    def _expand(self, rgb: np.ndarray, valid_box: np.ndarray, box: np.ndarray,
+                bg_color: np.ndarray) -> np.ndarray:
+        offsets = np.abs(valid_box - box)
+        if offsets.any():
+            tp, bm, lt, rt = offsets.ravel().tolist()
+            rgb = cv2.copyMakeBorder(rgb, tp, bm, lt, rt, cv2.BORDER_CONSTANT,
+                                     None, bg_color.tolist())
+        return np.ascontiguousarray(rgb)
 
 
 @dataclass(frozen=True)

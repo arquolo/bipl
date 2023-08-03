@@ -277,13 +277,14 @@ class _Lod(Lod, _ItemBase):
         box = np.array([(s.start, s.stop) for s in slices])
 
         *tile, spp = self.tile
-        dy, dx = (low for low, _ in box)
+        dyx = box[:, 0]  # (2 lo-hi) -> (2)
         out = np.ascontiguousarray(
-            np.broadcast_to(self.bg_color,
-                            [hi - lo for lo, hi in box] + [spp]))
+            np.broadcast_to(
+                self.bg_color,
+                np.r_[box[:, 1] - box[:, 0], spp],
+            ))
 
-        hw = self.shape[:2]
-        bmin, bmax = np.transpose(box).clip(0, hw)
+        bmin, bmax = box.T.clip(0, self.shape[:2])
 
         axes = *map(slice, bmin // tile, -(-bmax // tile)),
         t_lo = np.mgrid[axes].reshape(2, -1).T * tile  # [N, 2]
@@ -297,7 +298,7 @@ class _Lod(Lod, _ItemBase):
         crops = np.stack([t_lo, t_lo + tile], 1).clip(bmin, bmax)
 
         # [N, yx, lo-hi]
-        o_crops = (crops - [dy, dx]).transpose(0, 2, 1)
+        o_crops = (crops - dyx).transpose(0, 2, 1)
         t_crops = (crops - t_lo[:, None, :]).transpose(0, 2, 1)
         for part, (oy, ox), (ty, tx) in zip(parts, o_crops, t_crops):
             patch = np.array(part, copy=False)
