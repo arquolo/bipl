@@ -91,6 +91,8 @@ def get_fusion(tiles: Iterable[Tile],
 
     if shape is None:  # Collect all the tiles to compute destination size
         tiles = [*tiles]
+        if not tiles:
+            return None
         # N arrays of (yx + hw)
         yx_hw = np.array([[[t.vec, t.data.shape[:2]] for t in tiles]]).sum(1)
         # bottom left most edge
@@ -208,19 +210,31 @@ class _BaseView:
         return _IterView(self.m, self.shape, self.cells, _crop(
             self, self.shape))
 
-    def zip_with(
-            self, view: np.ndarray,
-            v_scale: int) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
+    def zip_with(self, view: np.ndarray, v_scale: int) -> _ZipView:
         """Extracts tiles from `view` simultaneously with tiles from self"""
         assert v_scale >= 1
-        for tile in self:
-            tw, th = tile.data.shape[:2]
-            v = view[tile.vec[0] // v_scale:,
-                     tile.vec[1] // v_scale:][:tw // v_scale, :th // v_scale]
-            yield tile.idx, tile.vec, tile.data, v
+        return _ZipView(self, view, v_scale)
 
     def with_cm(self: _Self, cm: AbstractContextManager) -> _Self:
         return cast(_Self, _CmView(self.m, self.shape, self.cells, self, cm))
+
+
+@dataclass
+class _ZipView:
+    source: _BaseView
+    view: NumpyLike
+    v_scale: int
+
+    def __len__(self) -> int:
+        return len(self.source)
+
+    def __iter__(self) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
+        assert self.v_scale >= 1
+        scale = self.v_scale
+        for tile in self.source:
+            loc = *(slice(o // scale, (o + s) // scale)
+                    for o, s in zip(tile.vec, tile.data.shape[:2])),
+            yield tile.idx, tile.vec, tile.data, self.view[loc]
 
 
 @dataclass
