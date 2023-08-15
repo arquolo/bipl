@@ -13,11 +13,16 @@ artifacts = ["*.dll"]  # only wheel keeps DLLs
 [project]
 name = "bipl"
 version = "0.3.5"
-description = "Big Image Python Library"
+description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
-keywords = ["TIFF", "SVS", "OpenSlide", "tiles"]
+keywords = [
+    "medical", "images", "pathology", "whole-slide", "wsi", "pyramid", "slide",
+    "libtiff", "openslide", "osgeo", "gdal",  # backends
+    "ndpi", "svs", "tiff", "bigtiff", "geotiff", "mrxs", "aperio", "hamamatsu",  # formats
+    "lazy", "parallel", "batch", "tile", "processing",  # ops
+]
 authors = [
     {name = "Paul Maevskikh", email = "arquolo@gmail.com"},
 ]
