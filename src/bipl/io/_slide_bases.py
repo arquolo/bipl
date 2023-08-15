@@ -42,8 +42,10 @@ class Lod(Item):
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Reads crop of LOD"""
-        (y_loc, x_loc, c_loc) = normalize_loc(key, self.shape)
-        assert y_loc.step == x_loc.step == 1
+        y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
+        if not y_loc.step == x_loc.step == 1:
+            raise ValueError('Y/X slice steps should be 1 for now, '
+                             f'got {y_loc.step} and {x_loc.step}')
         return self.crop((y_loc, x_loc))[:, :, c_loc]
 
     @final

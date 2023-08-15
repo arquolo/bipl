@@ -229,7 +229,8 @@ class _Item(_ItemBase):
             ok = TIFF.TIFFReadRGBAImageOriented(ptr, w, h,
                                                 c_void_p(rgba.ctypes.data), 1,
                                                 0)
-            assert ok
+            if not ok:
+                raise ValueError('TIFF image read failed')
 
         rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
@@ -249,8 +250,8 @@ class _Lod(Lod, _ItemBase):
         offset = TIFF.TIFFComputeTile(ptr, x, y, 0, 0)
         nbytes = int(self.tile_sizes[offset])
 
-        assert nbytes, 'File has corrupted tiles with zero size'
         if not nbytes:  # If nothing to read, don't read
+            raise ValueError('File has corrupted tiles with zero size')
             # TODO: read from previous lod
             # * If tile is empty on level N,
             # * then all tiles on levels >N are invalid, whether empty or not
@@ -263,7 +264,8 @@ class _Lod(Lod, _ItemBase):
             image = np.empty(self.tile, dtype='u1')
             isok = TIFF.TIFFReadTile(ptr, c_void_p(image.ctypes.data), x, y, 0,
                                      0)
-            assert isok != -1
+            if isok == -1:
+                raise ValueError('TIFF tile read failed')
             return self.color.to_rgb(image)
 
         data = create_string_buffer(nbytes)

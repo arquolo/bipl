@@ -100,7 +100,8 @@ class Slide:
         driver = driver_cls(path)
 
         num_items = len(driver)
-        assert num_items > 0
+        if num_items == 0:
+            raise ValueError('Empty file')
 
         item_0, *items = (driver[idx] for idx in range(num_items))
         if not isinstance(item_0, Lod):
@@ -173,7 +174,8 @@ class Slide:
            scale: float = 1) -> np.ndarray:
         """Read square region starting with offset"""
         dsize = dsize if isinstance(dsize, tuple) else (dsize, dsize)
-        assert len(dsize) == 2
+        if len(dsize) != 2:
+            raise ValueError(f'dsize should be 2-tuple or int. Got {dsize}')
 
         pool, lod = self.best_lod_for(scale)
         slices = *(slice(int(c) // pool,

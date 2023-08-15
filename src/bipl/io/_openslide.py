@@ -177,7 +177,8 @@ class Openslide(Driver):
         h, w = c_int64(), c_int64()
         OSD.openslide_get_level_dimensions(self.ptr, index, byref(w), byref(h))
         pool: float = OSD.openslide_get_level_downsample(self.ptr, index)
-        assert pool > 0
+        if pool <= 0:
+            raise ValueError(f'invalid file, got level downsample: {pool}')
 
         spacing = self.spacing if index == 0 else None
         return _Lod((h.value, w.value, 3), spacing, round(pool), index, self)

@@ -97,8 +97,8 @@ def get_fusion(tiles: Iterable[Tile],
         yx_hw = np.array([[[t.vec, t.data.shape[:2]] for t in tiles]]).sum(1)
         # bottom left most edge
         shape = *yx_hw.max(0).tolist(),
-    else:
-        assert len(shape) == 2
+    elif len(shape) != 2:
+        raise ValueError(f'shape should be 2-tuple, got {shape}')
 
     for _, (y, x), tile in tiles:
         if not tile.size:
@@ -108,7 +108,8 @@ def get_fusion(tiles: Iterable[Tile],
         if r is None:  # First iteration, initilize
             r = np.zeros((*shape, c), tile.dtype)
 
-        assert c == r.shape[2]
+        if c != r.shape[2]:
+            raise RuntimeError('tile channel counts changed during iteration')
         v = r[y:, x:][:h, :w]  # View to destination
         v[:] = tile[:v.shape[0], :v.shape[1]]  # Crop if needed
 
@@ -134,8 +135,15 @@ class Mosaic:
     overlap: int
 
     def __post_init__(self):
-        assert 0 <= self.overlap <= self.step
-        assert self.overlap % 2 == 0  # That may be optional
+        if self.overlap < 0:
+            raise ValueError('overlap should be non-negative, '
+                             f'got: {self.overlap}')
+        # That may be optional
+        if self.overlap % 2 != 0:
+            raise ValueError(f'overlap should be even, got: {self.overlap}')
+        if self.overlap > self.step:
+            raise ValueError('overlap should be lower than step, got: '
+                             f'overlap={self.overlap} and step={self.step}')
 
     def get_kernel(self) -> np.ndarray:
         return get_trapz(self.step, self.overlap)
@@ -212,7 +220,9 @@ class _BaseView:
 
     def zip_with(self, view: np.ndarray, v_scale: int) -> _ZipView:
         """Extracts tiles from `view` simultaneously with tiles from self"""
-        assert v_scale >= 1
+        if v_scale < 1:
+            raise ValueError('v_scale should be greater than 1, '
+                             f'got: {v_scale}')
         return _ZipView(self, view, v_scale)
 
     def with_cm(self: _Self, cm: AbstractContextManager) -> _Self:
@@ -335,7 +345,10 @@ class _TiledArrayView(_View):
 
     def select(self, mask: np.ndarray, scale: int) -> _TiledArrayView:
         """Drop tiles where `mask` is 0"""
-        assert mask.ndim == 2
+        if mask.ndim == 3 and mask.shape[-1] == 1:  # Strip extra dim
+            mask = mask[..., 0]
+        if mask.ndim != 2:
+            raise ValueError(f'Mask should be 2D, got shape: {mask.shape}')
         mask = mask.astype('u1')
 
         ih, iw = self.ishape
@@ -343,7 +356,7 @@ class _TiledArrayView(_View):
         pad = self.m.overlap // (scale * 2)
 
         mh, mw = (ih * step), (iw * step)
-        if mask.shape[:2] != (mh, mw):
+        if mask.shape != (mh, mw):
             mask_pad = [(0, max(0, s1 - s0))
                         for s0, s1 in zip(mask.shape, (mh, mw))]
             mask = np.pad(mask, mask_pad)[:mh, :mw]
