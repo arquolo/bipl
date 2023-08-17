@@ -30,7 +30,7 @@ except ImportError:
         msg = 'No GDAL is available. Please '
         if os.name == 'nt':
             msg += ('acquire it manually from '
-                    'https://www.lfd.uci.edu/~gohlke/pythonlibs/#gdal ')
+                    'https://github.com/cgohlke/geospatial-wheels/releases ')
         else:
             msg += ('install libgdal via your system package manager, '
                     'and run "pip install gdal==`gdal-config --version`"')
