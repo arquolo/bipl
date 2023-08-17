@@ -56,8 +56,7 @@ class _Lod(Lod):
 
         (y0, y1), (x0, x1) = valid_box.tolist()
         if y0 == y1 or x0 == x1:  # Patch is outside slide
-            return np.broadcast_to(self.g.bg_color,
-                                   (*shape, 3))
+            return np.broadcast_to(self.g.bg_color, (*shape, 3))
 
         h, w = y1 - y0, x1 - x0
         c = self.g.num_channels
@@ -68,7 +67,8 @@ class _Lod(Lod):
                 gdal_array.BandReadAsArray(b, x0, y0, w, h, buf_obj=hw)
 
         # TODO: add pad if necessary
-        return chw.transpose(1, 2, 0)
+        rgb = chw.transpose(1, 2, 0)
+        return self._expand(rgb, valid_box, box, self.g.bg_color)
 
 
 class Gdal(Driver):
@@ -84,9 +84,8 @@ class Gdal(Driver):
         if self.num_channels not in (3, 4):
             raise ValueError('Unknown colorspace')
 
-        self._bands: tuple[gdal.Band, ...] = *(
-            self.ds.GetRasterBand(i + 1) for i in range(self.num_channels)
-        ),
+        self._bands: tuple[gdal.Band, ...] = tuple(
+            self.ds.GetRasterBand(i + 1) for i in range(self.num_channels))
         self.dtype = np.dtype(gdal_array.flip_code(self._bands[0].DataType))
         if self.dtype != 'u1':
             raise ValueError(f'Unsupported dtype: {self.dtype}')
