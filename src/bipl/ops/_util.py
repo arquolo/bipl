@@ -36,16 +36,16 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
     return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
 
 
-def normalize_loc(slices: tuple[slice, ...] | slice,
+def normalize_loc(loc: tuple[slice, ...] | slice,
                   shape: tuple[int, ...]) -> tuple[slice, ...]:
     """Ensures slices match shape and have non-none endpoints"""
-    if isinstance(slices, slice):
-        slices = slices,
-    slices += (slice(None), ) * max(0, len(shape) - len(slices))
-    if len(slices) != len(shape):
-        raise ValueError(f'loc is too deep, got: {slices}')
+    if isinstance(loc, slice):
+        loc = loc,
+    loc += (slice(None), ) * max(0, len(shape) - len(loc))
+    if len(loc) != len(shape):
+        raise ValueError(f'loc is too deep, got: {loc}')
     return *(slice(
         s.start if s.start is not None else 0,
         s.stop if s.stop is not None else axis_len,
         s.step if s.step is not None else 1,
-    ) for s, axis_len in zip(slices, shape)),
+    ) for s, axis_len in zip(loc, shape)),

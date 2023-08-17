@@ -74,7 +74,7 @@ def _crop(tiles: Iterable[Tile], shape: tuple[int, ...]) -> Iterator[Tile]:
         )
 
 
-def _padslice(a: NumpyLike, loc: tuple[slice, ...]) -> np.ndarray:
+def _padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
     loc = normalize_loc(loc, a.shape)
 
     pos_loc = *(slice(max(s.start, 0), s.stop) for s in loc),
@@ -378,7 +378,7 @@ class _TiledArrayView(_View):
             self.m.step * (i + 1),
         ) for i in (iy, ix))
 
-        data = _padslice(self.data, (slice(y0, y1), slice(x0, x1)))
+        data = _padslice(self.data, slice(y0, y1), slice(x0, x1))
         return Tile(idx=(iy, ix), vec=(y0, x0), data=data)
 
     def _get_tile(self, iy: int, ix: int) -> Tile:

@@ -102,8 +102,8 @@ class _Lod(Lod):
     index: int
     osd: Openslide
 
-    def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        box, valid_box, shape = self._unpack_loc(slices)
+    def crop(self, *loc: slice) -> np.ndarray:
+        box, valid_box, shape = self._unpack_loc(*loc)
 
         (y0, y1), (x0, x1) = valid_box
         if y0 == y1 or x0 == x1:  # Patch is outside slide

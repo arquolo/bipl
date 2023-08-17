@@ -162,7 +162,7 @@ class Slide:
         pool, lod = self.best_lod_for(step0)
         yx_loc = *(slice(s.start // pool, s.stop // pool)
                    for s in (y_loc, x_loc)),
-        image = lod.crop(yx_loc)
+        image = lod.crop(*yx_loc)
 
         ratio = pool / step0
         dsize = *(round(ratio * s) for s in image.shape[:2]),
@@ -178,10 +178,10 @@ class Slide:
             raise ValueError(f'dsize should be 2-tuple or int. Got {dsize}')
 
         pool, lod = self.best_lod_for(scale)
-        slices = *(slice(int(c) // pool,
-                         int(c + d * scale) // pool)
-                   for c, d in zip(z0_yx_offset, dsize)),
-        image = lod.crop(slices)
+        loc = *(slice(int(c) // pool,
+                      int(c + d * scale) // pool)
+                for c, d in zip(z0_yx_offset, dsize)),
+        image = lod.crop(*loc)
         return _fit_to(image, dsize)
 
     def extra(self, name: str) -> np.ndarray | None:

@@ -275,8 +275,8 @@ class _Lod(Lod, _ItemBase):
             return JpegArray(data, self.jpt, self.color.space.value)
         return ImageArray(data)
 
-    def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        box = np.array([(s.start, s.stop) for s in slices])
+    def crop(self, *loc: slice) -> np.ndarray:
+        box = np.array([(s.start, s.stop) for s in loc])
 
         *tile, spp = self.tile
         dyx = box[:, 0]  # (2 lo-hi) -> (2)

@@ -35,7 +35,7 @@ class Lod(Item):
     def key(self) -> None:
         return None
 
-    def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
+    def crop(self, *loc: slice) -> np.ndarray:
         """Reads crop of LOD. Overridable"""
         raise NotImplementedError
 
@@ -46,7 +46,7 @@ class Lod(Item):
         if not y_loc.step == x_loc.step == 1:
             raise ValueError('Y/X slice steps should be 1 for now, '
                              f'got {y_loc.step} and {x_loc.step}')
-        return self.crop((y_loc, x_loc))[:, :, c_loc]
+        return self.crop(y_loc, x_loc)[:, :, c_loc]
 
     @final
     def __array__(self) -> np.ndarray:
@@ -67,7 +67,7 @@ class Lod(Item):
 
     def _unpack_loc(
         self,
-        slices: tuple[slice, ...],
+        *slices: slice,
     ) -> tuple[np.ndarray, np.ndarray, list[int]]:
         box = np.array([(s.start, s.stop) for s in slices])
         valid_box = box.T.clip([0, 0], self.shape[:2]).T  # (2, lo-hi)
@@ -89,16 +89,16 @@ class ProxyLod(Lod):
     scale: float
     base: Lod
 
-    def crop(self, slices: tuple[slice, ...]) -> np.ndarray:
-        src_slices = *[
+    def crop(self, *loc: slice) -> np.ndarray:
+        src_loc = *[
             # TODO: round/ceil/floor ?
             slice(round(s.start / self.scale), round(s.stop / self.scale))
-            for s in slices
+            for s in loc
         ],
         # TODO: read base part-by-part, not all at once, if scale > 2(?)
-        image = self.base[src_slices]
+        image = self.base[src_loc]
 
-        h, w = ((s.stop - s.start) for s in slices)
+        h, w = ((s.stop - s.start) for s in loc)
         return cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
 
 
