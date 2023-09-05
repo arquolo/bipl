@@ -12,7 +12,7 @@ artifacts = ["*.dll"]  # only wheel keeps DLLs
 
 [project]
 name = "bipl"
-version = "0.3.9"
+version = "0.4.0"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,7 +40,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "glow~=0.12.7",
+    "glow~=0.13.0",
     "imagecodecs",
     "lxml",
     "numpy~=1.21",
