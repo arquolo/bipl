@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import final
 from warnings import warn
 
-import cv2
 import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl.ops import normalize_loc
+from bipl.ops import normalize_loc, resize
 
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Item, Lod
@@ -65,12 +64,6 @@ def _cached_open(path: str) -> Slide:
                 last_exc = exc
         raise last_exc from None
     raise ValueError(f'Unknown file format {path}')
-
-
-def _fit_to(image: np.ndarray, dsize: tuple[int, ...]):
-    if image.shape[:2] == dsize:
-        return image
-    return cv2.resize(image, dsize[::-1], interpolation=cv2.INTER_AREA)
 
 
 @final
@@ -170,7 +163,7 @@ class Slide:
 
         ratio = pool / step0
         dsize = *(round(ratio * s) for s in image.shape[:2]),
-        return _fit_to(image, dsize)[:, :, c_loc]
+        return resize(image, dsize)[:, :, c_loc]
 
     def at(self,
            z0_yx_offset: tuple[int, ...],
@@ -188,7 +181,7 @@ class Slide:
                       int(c + d * scale) // pool)
                 for c, d in zip(z0_yx_offset, dsize)),
         image = lod.crop(*loc)
-        return _fit_to(image, dsize)
+        return resize(image, dsize)
 
     def extra(self, name: str) -> np.ndarray | None:
         if item := self.extras.get(name):

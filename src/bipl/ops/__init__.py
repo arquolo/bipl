@@ -1,5 +1,5 @@
 from ._mosaic import Mosaic, Tile, get_fusion
-from ._util import get_trapz, normalize_loc, probs_to_rgb_heatmap
+from ._util import get_trapz, normalize_loc, probs_to_rgb_heatmap, resize
 
 __all__ = [
     'Mosaic',
@@ -8,4 +8,5 @@ __all__ = [
     'get_trapz',
     'normalize_loc',
     'probs_to_rgb_heatmap',
+    'resize',
 ]

@@ -9,7 +9,7 @@ from typing import final
 import cv2
 import numpy as np
 
-from bipl.ops import normalize_loc
+from bipl.ops import normalize_loc, resize
 
 REGISTRY: dict[re.Pattern, list[type[Driver]]] = {}
 
@@ -102,7 +102,7 @@ class ProxyLod(Lod):
         image = self.base[src_loc]
 
         h, w = ((s.stop - s.start) for s in loc)
-        return cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
+        return resize(image, (h, w))
 
 
 class Driver:

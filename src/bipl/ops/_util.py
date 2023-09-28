@@ -1,7 +1,9 @@
-__all__ = ['get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap']
+__all__ = ['get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap', 'resize']
 
 import cv2
 import numpy as np
+
+from bipl import env
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
@@ -49,3 +51,30 @@ def normalize_loc(loc: tuple[slice, ...] | slice,
         s.stop if s.stop is not None else axis_len,
         s.step if s.step is not None else 1,
     ) for s, axis_len in zip(loc, shape)),
+
+
+def resize(image: np.ndarray,
+           hw: tuple[int, ...],
+           *,
+           antialias: bool | None = None) -> np.ndarray:
+    if image.shape[:2] == hw[:2]:
+        return image
+
+    f_max = max(s0 / s1 for s0, s1 in zip(image.shape, hw))
+    if f_max < 1:  # Upscaling
+        antialias = False
+    elif antialias is None:  # Enable only if we downscale more than 2.5x
+        antialias = f_max > 2.5
+
+    h, w = hw
+    interpolation = cv2.INTER_LINEAR
+    if antialias:
+        if env.BIPL_INTER_PYRAMID:
+            # * Progressive downsampling, fastest
+            for _ in range(int(f_max).bit_length() - 1):
+                image = cv2.resize(image, None, fx=0.5, fy=0.5)
+        else:
+            # * Use "box" window, slower
+            interpolation = cv2.INTER_AREA
+
+    return cv2.resize(image, (w, h), interpolation=interpolation)
