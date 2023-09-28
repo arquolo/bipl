@@ -154,8 +154,11 @@ class _Tags:
 
         self.color = _ColorInfo(colorspace, subsampling)
 
-    def _get(self, tp: type[ctypes._SimpleCData[_T]],
-             *tags: int) -> tuple[_T, ...]:
+    def _get(
+        self,
+        tp: type[ctypes._SimpleCData[_T]],
+        *tags: int,
+    ) -> tuple[_T, ...]:
         values: list[_T] = []
         for tag in tags:
             cv = tp()

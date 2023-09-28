@@ -41,7 +41,7 @@ def normalize_loc(loc: tuple[slice, ...] | slice,
     """Ensures slices match shape and have non-none endpoints"""
     if isinstance(loc, slice):
         loc = loc,
-    loc += (slice(None), ) * max(0, len(shape) - len(loc))
+    loc += (slice(None), ) * max(len(shape) - len(loc), 0)
     if len(loc) != len(shape):
         raise ValueError(f'loc is too deep, got: {loc}')
     return *(slice(
