@@ -33,7 +33,7 @@ class Dzi(NamedTuple):
         scale = 2 ** (max(slide.shape[:2]).bit_length() - level)
         tile_0 = self.tile * scale
         offset_0 = *(ip * tile_0 for ip in iy_ix),
-        return slide.at(offset_0, self.tile, scale)
+        return slide.at(offset_0, self.tile, scale=scale)
 
     def compress(self, rgb: np.ndarray) -> bytes:
         qtag = {

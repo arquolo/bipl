@@ -136,14 +136,18 @@ class Slide:
         line += f', driver={self.driver}'
         return f'{type(self).__name__}({line})'
 
-    def best_lod_for(self, pool: float) -> tuple[int, Lod]:
+    def best_lod_for(self,
+                     pool: float,
+                     *,
+                     tol: float = 0.01) -> tuple[int, Lod]:
         """Gives the most detailed LOD below `pool`"""
+        pool = pool * max(1, 1 + tol)
         idx = max(bisect_right(self.pools, pool) - 1, 0)
         return self.pools[idx], self.lods[idx]
 
-    def pool(self, zoom: float, *, eps: float = 0.01) -> Lod:
+    def pool(self, zoom: float, *, tol: float = 0.01) -> Lod:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
-        p, lod = self.best_lod_for(zoom * max(1, 1 + eps))
+        p, lod = self.best_lod_for(zoom, tol=tol)
         if p == zoom:
             return lod
         return lod.rescale(p / zoom)
@@ -171,13 +175,15 @@ class Slide:
     def at(self,
            z0_yx_offset: tuple[int, ...],
            dsize: int | tuple[int, ...],
-           scale: float = 1) -> np.ndarray:
+           *,
+           scale: float = 1,
+           tol: float = 0.01) -> np.ndarray:
         """Read square region starting with offset"""
         dsize = dsize if isinstance(dsize, tuple) else (dsize, dsize)
         if len(dsize) != 2:
             raise ValueError(f'dsize should be 2-tuple or int. Got {dsize}')
 
-        pool, lod = self.best_lod_for(scale)
+        pool, lod = self.best_lod_for(scale, tol=tol)
         loc = *(slice(int(c) // pool,
                       int(c + d * scale) // pool)
                 for c, d in zip(z0_yx_offset, dsize)),
