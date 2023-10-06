@@ -22,6 +22,9 @@ class Item:
     def key(self) -> str | None:
         raise NotImplementedError
 
+    def numpy(self) -> np.ndarray:
+        return np.array(self, copy=False)
+
     def __array__(self) -> np.ndarray:
         raise NotImplementedError
 
