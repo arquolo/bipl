@@ -4,14 +4,17 @@ __all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
 
 import re
 from dataclasses import dataclass
+from math import ceil
 from typing import final
 
 import cv2
 import numpy as np
 
-from bipl.ops import normalize_loc, resize
+from bipl import env
+from bipl.ops import Tile, get_fusion, normalize_loc, resize
 
 REGISTRY: dict[re.Pattern, list[type[Driver]]] = {}
+_MIN_TILE = 256
 
 
 @dataclass(frozen=True)
@@ -59,14 +62,21 @@ class Lod(Item):
     def rescale(self, scale: float) -> Lod:
         if scale == 1:
             return self
-        h, w, c = self.shape
-        return ProxyLod(
-            # TODO: round/ceil/floor ?
-            (round(h * scale), round(w * scale), c),
-            (self.spacing / scale if self.spacing else None),
-            scale,
-            self.base if isinstance(self, ProxyLod) else self,
-        )
+
+        base = self
+        if isinstance(base, ProxyLod):
+            scale = base.scale * scale
+            base = base.base
+
+        h, w, c = base.shape
+        h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
+        spacing = base.spacing / scale if base.spacing else None
+        if scale > 0.5:  # Downscale to less then 2x, or upsample
+            return ProxyLod((h, w, c), spacing, scale, base)
+
+        zoom = 2 ** (int(1 / scale).bit_length() - 1)
+        r_tile = max(_MIN_TILE // zoom, 1)
+        return TiledProxyLod((h, w, c), spacing, scale, base, zoom, r_tile)
 
     def _unpack_loc(
         self,
@@ -92,17 +102,50 @@ class ProxyLod(Lod):
     scale: float
     base: Lod
 
+    def _get_loc(self, *src_loc: slice) -> np.ndarray:
+        return self.base[src_loc]
+
     def crop(self, *loc: slice) -> np.ndarray:
         src_loc = *[
             # TODO: round/ceil/floor ?
             slice(round(s.start / self.scale), round(s.stop / self.scale))
             for s in loc
         ],
-        # TODO: read base part-by-part, not all at once, if scale > 2(?)
-        image = self.base[src_loc]
+        image = self._get_loc(*src_loc)
 
         h, w = ((s.stop - s.start) for s in loc)
         return resize(image, (h, w))
+
+
+@dataclass(frozen=True)
+class TiledProxyLod(ProxyLod):
+    zoom: int
+    r_tile: int
+
+    def _get_loc(self, *src_loc: slice) -> np.ndarray:
+        s_start = [s.start for s in src_loc]
+        s_shape = *(s.stop - s.start for s in src_loc),
+        if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
+            return super()._get_loc(*src_loc)
+
+        r_shape = *(ceil(size / self.zoom) for size in s_shape),
+        r_tile = self.r_tile
+        s_tile = r_tile * self.zoom
+
+        ty, tx = (ceil(size / s_tile) for size in s_shape)
+        tgrid = np.mgrid[:ty, :tx].reshape(2, -1).T
+
+        t_shape = (r_tile, r_tile)
+        r_tiles = map(
+            Tile,
+            tgrid.tolist(),
+            (tgrid * r_tile).tolist(),
+            (resize(self.base[sy:sy + s_tile, sx:sx + s_tile], t_shape)
+             for sy, sx in (tgrid * s_tile + s_start).tolist()),
+        )
+        image = get_fusion(r_tiles, r_shape)
+        assert image is not None
+        return image
 
 
 class Driver:
