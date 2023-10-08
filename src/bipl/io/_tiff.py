@@ -19,12 +19,15 @@ from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     create_string_buffer, string_at)
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import cached_property
 from threading import Lock
 from typing import NamedTuple, Protocol, TypeVar
 
 import cv2
 import imagecodecs
 import numpy as np
+
+from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Item, Lod
@@ -186,19 +189,33 @@ class SupportsArray(Protocol):
         raise NotImplementedError
 
 
-class ImageArray(NamedTuple):
+class _CachedArray:
+    def __array__(self) -> np.ndarray:
+        return self.numpy
+
+    @cached_property
+    def numpy(self) -> np.ndarray:
+        return self._impl()
+
+    def _impl(self) -> np.ndarray:
+        raise NotImplementedError
+
+
+@dataclass
+class ImageArray(_CachedArray):
     data: object
 
-    def __array__(self) -> np.ndarray:
+    def _impl(self) -> np.ndarray:
         return imagecodecs.imread(self.data)
 
 
-class JpegArray(NamedTuple):
+@dataclass
+class JpegArray(_CachedArray):
     data: object
     jpt: bytes
     colorspace: int
 
-    def __array__(self) -> np.ndarray:
+    def _impl(self) -> np.ndarray:
         return imagecodecs.jpeg_decode(
             self.data, tables=self.jpt, colorspace=self.colorspace)
 
@@ -249,7 +266,7 @@ class _Lod(Lod, _ItemBase):
     tile: tuple[int, ...]
     tile_sizes: np.ndarray = field(repr=False)
 
-    def _get_tile(self, y, x, ptr) -> SupportsArray:
+    def _read_tile(self, y, x, ptr) -> SupportsArray:
         offset = TIFF.TIFFComputeTile(ptr, x, y, 0, 0)
         nbytes = int(self.tile_sizes[offset])
 
@@ -278,6 +295,23 @@ class _Lod(Lod, _ItemBase):
             return JpegArray(data, self.jpt, self.color.space.value)
         return ImageArray(data)
 
+    def _get_tile(self, y: int, x: int, ptr, cache_ok: bool) -> SupportsArray:
+        # Runs within lock
+        key = (self.index, y, x)
+        cache = self.tiff.cache
+        if (obj := cache.pop(key, None)) is not None:
+            # Cache hit, move to the end
+            cache[key] = obj
+        else:
+            # Cache miss
+            obj = self._read_tile(y, x, ptr)
+
+            if cache_ok and (cache_cap := env.BIPL_TILE_CACHE):
+                while len(cache) >= cache_cap:  # Evict least used item
+                    cache.pop(next(iter(cache)))
+                cache[key] = obj
+        return obj
+
     def crop(self, *loc: slice) -> np.ndarray:
         box = np.array([(s.start, s.stop) for s in loc])
 
@@ -296,8 +330,14 @@ class _Lod(Lod, _ItemBase):
         if not t_lo.size:
             return out
 
+        # Cache only edges
+        # TODO: profile whether it gives any perf benefits
+        is_edge = (t_lo == t_lo.min(0)).any(1) | (t_lo == t_lo.max(0)).any(1)
         with self.tiff.ifd(self.index) as ptr:
-            parts = [self._get_tile(y, x, ptr) for y, x in t_lo.tolist()]
+            parts = [
+                self._get_tile(y, x, ptr, cache_ok)
+                for (y, x), cache_ok in zip(t_lo.tolist(), is_edge.tolist())
+            ]
 
         # [N, lo-hi, yx]
         crops = np.stack([t_lo, t_lo + tile], 1).clip(bmin, bmax)
@@ -325,6 +365,7 @@ class Tiff(Driver):
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
 
         self._lock = Lock()
+        self.cache: dict[tuple, SupportsArray] = {}
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
