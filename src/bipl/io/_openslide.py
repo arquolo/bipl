@@ -5,7 +5,6 @@ Driver based on OpenSlide
 - compatible with formats: tiff/tif/svs, ndpi/vms/vmu, scn, mrxs, svsslide, bif
 """
 # TODO: handle viewport offsets
-from __future__ import annotations
 
 __all__ = ['Openslide']
 
@@ -82,7 +81,7 @@ def _mbgra_to_rgb(bgra: np.ndarray, rgb_base: np.ndarray) -> np.ndarray:
 @dataclass(frozen=True)
 class _Item(Item):
     name: bytes
-    osd: Openslide
+    osd: 'Openslide'
 
     @property
     def key(self) -> str:
@@ -100,7 +99,7 @@ class _Item(Item):
 class _Lod(Lod):
     pool: int
     index: int
-    osd: Openslide
+    osd: 'Openslide'
 
     def crop(self, *loc: slice) -> np.ndarray:
         box, valid_box, shape = self._unpack_loc(*loc)

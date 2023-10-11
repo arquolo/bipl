@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Gdal', 'url_to_gdal', 'url_to_safe_gdal']
 
 import os
@@ -48,7 +46,7 @@ def _fix_if_url(s: str, /) -> str:
 @dataclass(frozen=True)
 class _Lod(Lod):
     index: int
-    g: Gdal
+    g: 'Gdal'
     bands: tuple[gdal.Band, ...]
 
     def crop(self, *loc: slice) -> np.ndarray:

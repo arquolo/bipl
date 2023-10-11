@@ -15,7 +15,7 @@ name = "bipl"
 version = "0.4.0"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 keywords = [
     "medical", "images", "pathology", "whole-slide", "wsi", "pyramid", "slide",
@@ -98,7 +98,7 @@ ignore = [
 ]
 exclude = [".eggs", ".git", "__pycache__", "build", "dist"]
 line-length = 79
-target-version = "py39"
+target-version = "py310"
 unfixable = ["I001"]
 
 [tool.ruff.flake8-quotes]

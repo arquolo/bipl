@@ -5,8 +5,6 @@ Driver based on libtiff
 - compatible with TIFF and its flavours
 """
 
-from __future__ import annotations
-
 __all__ = ['Tiff']
 
 import ctypes
@@ -159,7 +157,7 @@ class _Tags:
 
     def _get(
         self,
-        tp: type[ctypes._SimpleCData[_T]],
+        tp: type['ctypes._SimpleCData[_T]'],
         *tags: int,
     ) -> tuple[_T, ...]:
         values: list[_T] = []
@@ -175,7 +173,7 @@ class _Tags:
             return ''
         return (values[0] or b'').decode()
 
-    def _get_varargs(self, tps: tuple[type[ctypes._SimpleCData[_T]], ...],
+    def _get_varargs(self, tps: tuple[type['ctypes._SimpleCData[_T]'], ...],
                      tag: int) -> tuple[_T, ...]:
         cvs = *(tp() for tp in tps),
         if TIFF.TIFFGetField(self._ptr, c_uint32(tag), *map(byref, cvs)):
@@ -224,7 +222,7 @@ class JpegArray(_CachedArray):
 @dataclass(frozen=True)
 class _ItemBase(Item):
     index: int
-    tiff: Tiff
+    tiff: 'Tiff'
 
 
 @dataclass(frozen=True)

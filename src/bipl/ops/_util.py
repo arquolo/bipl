@@ -1,9 +1,16 @@
-__all__ = ['get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap', 'resize']
+__all__ = [
+    'get_fusion', 'get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap',
+    'resize'
+]
+
+from collections.abc import Iterable
 
 import cv2
 import numpy as np
 
 from bipl import env
+
+from ._types import Tile
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
@@ -78,3 +85,34 @@ def resize(image: np.ndarray,
             interpolation = cv2.INTER_AREA
 
     return cv2.resize(image, (w, h), interpolation=interpolation)
+
+
+def get_fusion(tiles: Iterable[Tile],
+               shape: tuple[int, ...] | None = None) -> np.ndarray | None:
+    r: np.ndarray | None = None
+
+    if shape is None:  # Collect all the tiles to compute destination size
+        tiles = [*tiles]
+        if not tiles:
+            return None
+        # N arrays of (yx + hw)
+        yx_hw = np.array([[[t.vec, t.data.shape[:2]] for t in tiles]]).sum(1)
+        # bottom left most edge
+        shape = *yx_hw.max(0).tolist(),
+    elif len(shape) != 2:
+        raise ValueError(f'shape should be 2-tuple, got {shape}')
+
+    for _, (y, x), tile in tiles:
+        if not tile.size:
+            continue
+
+        h, w, c = tile.shape
+        if r is None:  # First iteration, initilize
+            r = np.zeros((*shape, c), tile.dtype)
+
+        if c != r.shape[2]:
+            raise RuntimeError('tile channel counts changed during iteration')
+        v = r[y:, x:][:h, :w]  # View to destination
+        v[:] = tile[:v.shape[0], :v.shape[1]]  # Crop if needed
+
+    return r

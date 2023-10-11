@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Dzi']
 
 from typing import TYPE_CHECKING, Literal, NamedTuple
@@ -18,7 +16,7 @@ class Dzi(NamedTuple):
     quality: int = 90
     fmt: Literal['jpeg', 'webp', 'avif'] = 'webp'
 
-    def head(self, slide: Slide) -> str:
+    def head(self, slide: 'Slide') -> str:
         e = ElementMaker()
         return tostring(
             e.Image(
@@ -28,7 +26,7 @@ class Dzi(NamedTuple):
                 Format=self.fmt,
                 xmlns='http://schemas.microsoft.com/deepzoom/2008'))
 
-    def tile_at(self, slide: Slide, level: int,
+    def tile_at(self, slide: 'Slide', level: int,
                 iy_ix: tuple[int, ...]) -> np.ndarray:
         scale = 2 ** (max(slide.shape[:2]).bit_length() - level)
         tile_0 = self.tile * scale

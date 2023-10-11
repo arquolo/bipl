@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
 
 import re
@@ -13,7 +11,7 @@ import numpy as np
 from bipl import env
 from bipl.ops import Tile, get_fusion, normalize_loc, resize
 
-REGISTRY: dict[re.Pattern, list[type[Driver]]] = {}
+REGISTRY: dict[re.Pattern, list[type['Driver']]] = {}
 _MIN_TILE = 256
 
 
@@ -59,7 +57,7 @@ class Lod(Item):
         """Reads whole LOD in single call"""
         return self[:, :]
 
-    def rescale(self, scale: float) -> Lod:
+    def rescale(self, scale: float) -> 'Lod':
         if scale == 1:
             return self
 

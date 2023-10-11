@@ -1,5 +1,7 @@
-from ._mosaic import Mosaic, Tile, get_fusion
-from ._util import get_trapz, normalize_loc, probs_to_rgb_heatmap, resize
+from ._mosaic import Mosaic
+from ._types import Tile
+from ._util import (get_fusion, get_trapz, normalize_loc, probs_to_rgb_heatmap,
+                    resize)
 
 __all__ = [
     'Mosaic',

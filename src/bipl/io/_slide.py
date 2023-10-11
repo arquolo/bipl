@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Slide']
 
 import os
@@ -51,7 +49,7 @@ for _drv, _regex in [  # LIFO, last driver takes priority
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
 @memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
-def _cached_open(path: str) -> Slide:
+def _cached_open(path: str) -> 'Slide':
     last_exc = BaseException()
     matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)
                for tp in tps_)
@@ -195,7 +193,7 @@ class Slide:
         return np.asarray(item)
 
     @classmethod
-    def open(cls, anypath: Path | str) -> Slide:
+    def open(cls, anypath: Path | str) -> 'Slide':
         """Open multi-scale image."""
         if isinstance(anypath, Path):
             anypath = Path(anypath).resolve().absolute().as_posix()
