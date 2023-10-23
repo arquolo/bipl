@@ -3,8 +3,10 @@ __all__ = ['Slide']
 import os
 import warnings
 from bisect import bisect_right
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import final
+from typing import final, overload
 from warnings import warn
 
 import numpy as np
@@ -58,7 +60,7 @@ def _cached_open(path: str) -> 'Slide':
     if tps:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
-                return Slide(path, tp)
+                return Slide.from_file(path, tp)
             except (ValueError, TypeError) as exc:
                 last_exc = exc
         raise last_exc from None
@@ -66,6 +68,7 @@ def _cached_open(path: str) -> 'Slide':
 
 
 @final
+@dataclass(frozen=True)
 class Slide:
     """Usage:
     ```
@@ -83,12 +86,20 @@ class Slide:
     path: str
     shape: tuple[int, ...]
     pools: tuple[int, ...]
-    lods: tuple[Lod, ...]
-    extras: dict[str, Item]
+    mpp: float | None
+    driver: str
+    bbox: tuple = field(repr=False)
+    lods: tuple[Lod, ...] = field(repr=False)
+    extras: dict[str, Item] = field(repr=False)
 
-    def __init__(self, path: str, driver_cls: type[Driver]):
-        self.path = path
-        driver = driver_cls(path)
+    @classmethod
+    def from_file(
+        cls,
+        path: str,
+        driver_fn: Callable[[str], Driver],
+        mpp: float | None = None,
+    ) -> 'Slide':
+        driver = driver_fn(path)
 
         num_items = len(driver)
         if num_items == 0:
@@ -98,28 +109,38 @@ class Slide:
         if not isinstance(item_0, Lod):
             raise TypeError('First pyramid layer is not tiled')
 
+        # Retrieve all sub-images
         lods: dict[int, Lod] = {1: item_0}
-        self.extras: dict[str, Item] = {}
+        extras: dict[str, Item] = {}
         for item in items:
             if isinstance(item, Lod):
                 pool = round(item_0.shape[0] / item.shape[0])
                 lods[pool] = item
             elif key := item.key:
-                self.extras[key] = item
+                extras[key] = item
+        extras |= driver.named_items()
 
-        self.pools = *sorted(lods.keys()),
-        # TODO: create virtual lods if pools are too distant (ProxyLod?)
-        self.lods = *(lods[pool] for pool in self.pools),
-        self.shape = self.lods[0].shape
-        self._mpp = self.lods[0].mpp
-        self.bbox = driver.bbox
+        zoom_levels = *sorted(lods.keys()),
+        # TODO: create virtual lods if zoom levels are too distant (ProxyLod?)
 
-        self.extras |= driver.named_items()
-        self.driver = driver_cls.__name__
+        if mpp is None:  # If no override is passed, use native if present
+            mpp = lods[1].mpp
 
-    @property
-    def mpp(self) -> float | None:
-        return self._mpp
+        return Slide(
+            path=path,
+            shape=lods[1].shape,
+            mpp=mpp,
+            pools=zoom_levels,
+            driver=type(driver).__name__,
+            bbox=driver.bbox,
+            lods=tuple(lods[pool] for pool in zoom_levels),
+            extras=extras,
+        )
+
+    def mpp_or_error(self) -> float:
+        if self.mpp is None:
+            raise ValueError('Slide`s MPP is unknown')
+        return self.mpp
 
     @property
     def spacing(self) -> float | None:
@@ -127,17 +148,10 @@ class Slide:
             '"Slide.spacing" is deprecated. Use "Slide.mpp"',
             category=DeprecationWarning,
             stacklevel=2)
-        return self._mpp
+        return self.mpp
 
     def __reduce__(self) -> tuple:
         return Slide.open, (self.path, )
-
-    def __repr__(self) -> str:
-        line = f"'{self.path}', shape={self.shape}, pools={self.pools}"
-        if self._mpp:
-            line += f', mpp={self._mpp:.4f}'
-        line += f', driver={self.driver}'
-        return f'{type(self).__name__}({line})'
 
     def best_lod_for(self,
                      pool: float,
@@ -147,6 +161,11 @@ class Slide:
         pool = pool * max(1, 1 + tol)
         idx = max(bisect_right(self.pools, pool) - 1, 0)
         return self.pools[idx], self.lods[idx]
+
+    def resample(self, mpp: float, *, tol: float = 0.01) -> Lod:
+        """Resample slide to specific resolution"""
+        zoom = mpp / self.mpp_or_error()
+        return self.pool(zoom, tol=tol)
 
     def pool(self, zoom: float, *, tol: float = 0.01) -> Lod:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
@@ -175,16 +194,40 @@ class Slide:
         dsize = *(round(ratio * s) for s in image.shape[:2]),
         return resize(image, dsize)[:, :, c_loc]
 
+    @overload
     def at(self,
            z0_yx_offset: tuple[int, ...],
            dsize: int | tuple[int, ...],
            *,
-           scale: float = 1,
+           scale: float,
+           tol: float = ...) -> np.ndarray:
+        ...
+
+    @overload
+    def at(self,
+           z0_yx_offset: tuple[int, ...],
+           dsize: int | tuple[int, ...],
+           *,
+           mpp: float,
+           tol: float = ...) -> np.ndarray:
+        ...
+
+    def at(self,
+           z0_yx_offset: tuple[int, ...],
+           dsize: int | tuple[int, ...],
+           *,
+           scale: float | None = 1,
+           mpp: float | None = None,
            tol: float = 0.01) -> np.ndarray:
         """Read square region starting with offset"""
         dsize = dsize if isinstance(dsize, tuple) else (dsize, dsize)
         if len(dsize) != 2:
             raise ValueError(f'dsize should be 2-tuple or int. Got {dsize}')
+
+        if scale is None:
+            if mpp is None:
+                raise ValueError('Only one of scale/mpp should be None')
+            scale = mpp / self.mpp_or_error()
 
         pool, lod = self.best_lod_for(scale, tol=tol)
         loc = *(slice(int(c) // pool,
