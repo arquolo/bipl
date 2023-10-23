@@ -1,6 +1,7 @@
 __all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import ceil
 from typing import final
@@ -28,6 +29,9 @@ class Item:
 
     def __array__(self) -> np.ndarray:
         raise NotImplementedError
+
+    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_PostItem':
+        return _PostItem(self.shape, self, fn)
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,34 @@ class Lod(Item):
             rgb = cv2.copyMakeBorder(rgb, tp, bm, lt, rt, cv2.BORDER_CONSTANT,
                                      None, bg_color.tolist())
         return np.ascontiguousarray(rgb)
+
+    @final
+    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_PostLod':
+        return _PostLod(self.shape, self.mpp, self, fn)
+
+
+@dataclass(frozen=True)
+class _PostItem(Item):
+    base: Item
+    fn: Callable[[np.ndarray], np.ndarray]
+
+    def __array__(self) -> np.ndarray:
+        im = self.base.__array__()
+        return self.fn(im)
+
+
+@dataclass(frozen=True)
+class _PostLod(Lod):
+    base: Lod
+    fn: Callable[[np.ndarray], np.ndarray]
+    pad: int = 64
+
+    def crop(self, *loc: slice) -> np.ndarray:
+        loc_ = *(slice(s.start - self.pad, s.stop + self.pad, s.step)
+                 for s in loc),
+        im = self.base.crop(*loc_)
+        im = self.fn(im)
+        return im[self.pad:-self.pad, self.pad:-self.pad, :]
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import os
 import warnings
 from bisect import bisect_right
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import final, overload
 from warnings import warn
@@ -18,6 +18,7 @@ from bipl.ops import normalize_loc, resize
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Item, Lod
 from ._tiff import Tiff
+from ._util import get_transform
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -60,7 +61,7 @@ def _cached_open(path: str) -> 'Slide':
     if tps:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
-                return Slide.from_file(path, tp)
+                return Slide.from_file(path, tp).tonemap()
             except (ValueError, TypeError) as exc:
                 last_exc = exc
         raise last_exc from None
@@ -135,6 +136,18 @@ class Slide:
             bbox=driver.bbox,
             lods=tuple(lods[pool] for pool in zoom_levels),
             extras=extras,
+        )
+
+    def tonemap(self) -> 'Slide':
+        fn = get_transform(self.thumbnail())
+        if fn is None:
+            return self
+        return replace(
+            self,
+            lods=[lod.apply(fn) for lod in self.lods],
+            extras={
+                k: i.apply(fn) for k, i in self.extras.items()
+            },
         )
 
     def mpp_or_error(self) -> float:
