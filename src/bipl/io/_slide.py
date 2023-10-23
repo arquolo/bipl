@@ -1,6 +1,7 @@
 __all__ = ['Slide']
 
 import os
+import warnings
 from bisect import bisect_right
 from pathlib import Path
 from typing import final
@@ -81,7 +82,6 @@ class Slide:
     # TODO: call .close in finalizer
     path: str
     shape: tuple[int, ...]
-    spacing: float | None
     pools: tuple[int, ...]
     lods: tuple[Lod, ...]
     extras: dict[str, Item]
@@ -111,19 +111,31 @@ class Slide:
         # TODO: create virtual lods if pools are too distant (ProxyLod?)
         self.lods = *(lods[pool] for pool in self.pools),
         self.shape = self.lods[0].shape
-        self.spacing = self.lods[0].spacing
+        self._mpp = self.lods[0].mpp
         self.bbox = driver.bbox
 
         self.extras |= driver.named_items()
         self.driver = driver_cls.__name__
+
+    @property
+    def mpp(self) -> float | None:
+        return self._mpp
+
+    @property
+    def spacing(self) -> float | None:
+        warnings.warn(
+            '"Slide.spacing" is deprecated. Use "Slide.mpp"',
+            category=DeprecationWarning,
+            stacklevel=2)
+        return self._mpp
 
     def __reduce__(self) -> tuple:
         return Slide.open, (self.path, )
 
     def __repr__(self) -> str:
         line = f"'{self.path}', shape={self.shape}, pools={self.pools}"
-        if self.spacing:
-            line += f', spacing={self.spacing:.4f}'
+        if self._mpp:
+            line += f', mpp={self._mpp:.4f}'
         line += f', driver={self.driver}'
         return f'{type(self).__name__}({line})'
 

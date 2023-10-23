@@ -32,7 +32,7 @@ class Item:
 
 @dataclass(frozen=True)
 class Lod(Item):
-    spacing: float | None
+    mpp: float | None
 
     @final
     @property
@@ -68,13 +68,13 @@ class Lod(Item):
 
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
-        spacing = base.spacing / scale if base.spacing else None
+        mpp = base.mpp / scale if base.mpp else None
         if scale > 0.5:  # Downscale to less then 2x, or upsample
-            return ProxyLod((h, w, c), spacing, scale, base)
+            return ProxyLod((h, w, c), mpp, scale, base)
 
         zoom = 2 ** (int(1 / scale).bit_length() - 1)
         r_tile = max(_MIN_TILE // zoom, 1)
-        return TiledProxyLod((h, w, c), spacing, scale, base, zoom, r_tile)
+        return TiledProxyLod((h, w, c), mpp, scale, base, zoom, r_tile)
 
     def _unpack_loc(
         self,

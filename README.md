@@ -10,13 +10,24 @@ import numpy as np
 from bipl import Slide
 
 slide = Slide.open('test.svs')
-shape: tuple[int, ...] = slide.shape
-pools: tuple[int, ...] = slide.pools
-spacing: float = slide.spacing  # X um per pixel
-image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray of 2048x2048 from 1:1 level
+shape: tuple[int, ...] = slide.shape  # Native shape
+pools: tuple[int, ...] = slide.pools  # List of pre-existing sub-resolution levels
 
-mini = slide.pool(4)  # 1:4 scale, shape is 4x smaller then full resolution
-image: np.ndarray = mini[:512, :512]  # Same view as `image`, but lower resolution
+# Get native miniature
+tmb: np.ndarray = slide.thumbnail()
+
+mpp: float = slide.mpp  # X um per pixel, native resolution
+image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray of 2048x2048 from full resolution
+
+MPP = 16.  # Let's say we want slide at 16 um/px resolution
+zoom = MPP / slide.mpp  # Effective zoom,
+mini = slide.pool(zoom)  # Gives `zoom`-times smaller image for faster processing
+
+# Those ones trigger ndarray conversion
+image: np.ndarray
+image = mini[:512, :512]  # Take a crop of
+image = mini.numpy()  # Take a whole resolution level
+image = np.array(mini, copy=False)  # Use __array__ API
 ```
 </details>
 
@@ -32,13 +43,14 @@ m = Mosaic(step=512, overlap=0)  # Read at [0:512], [512:1024], ...
 # Open slide at 1:1 scale
 s = Slide.open('test.svs')
 
-# Get view at 1:4 scale of slide. `s4.shape` = `s.shape` / 4.
+# Target at 4 um/px resolution
 # If `test.svs` has some pyramid in it (i.e. 1:1, 1:4, 1:16), it will be used to speed up reads.
-s4 = s.pool(4)
+MPP = 4.
+zoom = MPP / s.mpp
+s4 = s.pool(zoom)
 
 # Get iterator over tiles.
-# Reads will be at [0:512], [512:1024] ... @ 1:4 scale
-# or [0:2048], [2048:4096], ... @ 1:1, each downscaled to 512px
+# Reads will be at [0:512], [512:1024] ... @ 1:zoom scale
 tiles = m.iterate(s4)
 
 # Read only subset of tiles according to binary mask (1s are read, 0s are not).

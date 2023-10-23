@@ -91,13 +91,13 @@ class Gdal(Driver):
         self.meta = self.ds.GetMetadata().copy()
 
         self.bg_color = np.full(3, 255, 'u1')  # TODO: parse tags
-        self.spacing = self._spacing()
+        self.mpp = self._mpp()
         self.lock = Lock()
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({id(self.ds):0x})'
 
-    def _spacing(self) -> float | None:
+    def _mpp(self) -> float | None:
         if mpp := gdal_parse_mpp(self.meta):
             return float(np.mean(mpp))
         return None
@@ -110,8 +110,8 @@ class Gdal(Driver):
             b if index == 0 else b.GetOverview(index - 1) for b in self._bands)
 
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
-        spacing = self.spacing if index == 0 else None
-        return _Lod(shape, spacing, index, self, bands)
+        mpp = self.mpp if index == 0 else None
+        return _Lod(shape, mpp, index, self, bands)
 
     def keys(self) -> list[str]:
         return []  # TODO: fill if GDAL can detect auxilary images

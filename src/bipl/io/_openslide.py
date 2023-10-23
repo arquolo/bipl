@@ -140,9 +140,9 @@ class Openslide(Driver):
         bg_hex = self.osd_meta.get('background-color', 'FFFFFF')
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
-        self.spacing = self._spacing()
+        self.mpp = self._mpp()
 
-    def _spacing(self) -> float | None:
+    def _mpp(self) -> float | None:
         mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
         if s := [float(m) for m in mpp if m]:
             return float(np.mean(s))
@@ -179,8 +179,8 @@ class Openslide(Driver):
         if pool <= 0:
             raise ValueError(f'invalid file, got level downsample: {pool}')
 
-        spacing = self.spacing if index == 0 else None
-        return _Lod((h.value, w.value, 3), spacing, round(pool), index, self)
+        mpp = self.mpp if index == 0 else None
+        return _Lod((h.value, w.value, 3), mpp, round(pool), index, self)
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)

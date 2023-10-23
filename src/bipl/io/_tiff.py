@@ -406,8 +406,8 @@ class Tiff(Driver):
 
         return vendor, head, meta
 
-    def _spacing(self, resolution: tuple[float, ...],
-                 meta: dict[str, str]) -> float | None:
+    def _mpp(self, resolution: tuple[float, ...],
+             meta: dict[str, str]) -> float | None:
         if s := [(10_000 / v) for v in resolution if v]:
             return float(np.mean(s))
         if mpp := meta.get('MPP'):
@@ -423,7 +423,7 @@ class Tiff(Driver):
         bg_color = self._bg_color()
         vendor, head, meta = self._parse_description(tags.description,
                                                      tags.make)
-        spacing = self._spacing(tags.resolution, meta) if index == 0 else None
+        mpp = self._mpp(tags.resolution, meta) if index == 0 else None
 
         if (tags.color.space is _ColorSpace.YCBCR
                 and tags.color.subsampling != (2, 2)):
@@ -463,7 +463,7 @@ class Tiff(Driver):
             if (tbc == 0).any():
                 raise ValueError('Found 0s in tile size table')
 
-        return _Lod(shape, index, self, spacing, tags.color, bg_color,
+        return _Lod(shape, index, self, mpp, tags.color, bg_color,
                     tags.compression, jpt, tile, tbc)
 
     def __getitem__(self, index: int) -> Item:
