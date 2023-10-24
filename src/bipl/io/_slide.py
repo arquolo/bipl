@@ -157,7 +157,7 @@ class Slide:
             return r
         return replace(
             r,
-            lods=[lod.apply(fn) for lod in r.lods],
+            lods=[lod.apply(fn, pad=64) for lod in r.lods],
             extras={
                 k: i.apply(fn) for k, i in r.extras.items()
             },

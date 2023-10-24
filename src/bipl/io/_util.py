@@ -190,7 +190,8 @@ class _Lut:
 
 def clahe(im: np.ndarray) -> np.ndarray:
     h, w = im.shape[:2]
-    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(w // 64, h // 64))
+    gh, gw = max(h // 64, 1), max(w // 64, 1)
+    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(gw, gh))
 
     ls, a, b = cv2.split(cv2.cvtColor(im, cv2.COLOR_RGB2LAB))
     ls = cl.apply(ls)

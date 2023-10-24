@@ -106,8 +106,10 @@ class Lod(Item):
         return np.ascontiguousarray(rgb)
 
     @final
-    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_PostLod':
-        return _PostLod(self.shape, self.mpp, self, fn)
+    def apply(self,
+              fn: Callable[[np.ndarray], np.ndarray],
+              pad: int = 0) -> '_PostLod':
+        return _PostLod(self.shape, self.mpp, self, fn, pad)
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,8 @@ class _PostLod(Lod):
                  for s in loc),
         im = self.base.crop(*loc_)
         im = self.fn(im)
+        if not self.pad:
+            return im
         return im[self.pad:-self.pad, self.pad:-self.pad, :]
 
 
