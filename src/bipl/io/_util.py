@@ -155,10 +155,10 @@ def clahe(im: np.ndarray) -> np.ndarray:
 class Icc:
     def __init__(self, icc: bytes) -> None:
         srgb = ImageCms.createProfile('sRGB')
-        self._tf = ImageCms.buildTransformFromOpenProfiles(
+        self._tf: ImageCms.ImageCmsTransform = ImageCms.buildTransform(
             io.BytesIO(icc), srgb, inMode='RGB', outMode='RGB')
 
     def __call__(self, image: np.ndarray) -> np.ndarray:
         pil = Image.fromarray(image)
-        pil = ImageCms.applyTransform(pil, self._tf)
+        pil = self._tf.apply(pil)
         return np.array(pil, copy=False)

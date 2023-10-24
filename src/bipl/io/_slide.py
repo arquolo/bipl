@@ -138,25 +138,31 @@ class Slide:
             extras=extras,
         )
 
+    def icc(self) -> 'Slide':
+        if icc_0 := self.lods[0].icc:
+            lods = *(lod.apply(icc_0) for lod in self.lods),
+            self = replace(self, lods=lods)
+
+        if any(e.icc for e in self.extras.values()):
+            extras = {
+                t: e.apply(e.icc) if e.icc else e
+                for t, e in self.extras.items()
+            }
+            self = replace(self, extras=extras)
+
+        return self
+
+    def clahe(self) -> 'Slide':
+        lods = *(lod.apply(clahe, pad=64) for lod in self.lods),
+        extras = {k: i.apply(clahe) for k, i in self.extras.items()}
+        return replace(self, lods=lods, extras=extras)
+
     def tonemap(self) -> 'Slide':
         r = self
         if env.BIPL_ICC:
-            if icc_0 := r.lods[0].icc:
-                lods = *(lod.apply(icc_0) for lod in r.lods),
-                r = replace(r, lods=lods)
-
-            if any(e for e in r.extras.values() if e.icc):
-                extras = {
-                    t: e.apply(e.icc) if e.icc else e
-                    for t, e in r.extras.items()
-                }
-                r = replace(r, extras=extras)
-
+            r = r.icc()
         if env.BIPL_CLAHE:
-            lods = *(lod.apply(clahe, pad=64) for lod in r.lods),
-            extras = {k: i.apply(clahe) for k, i in r.extras.items()}
-            r = replace(r, lods=lods, extras=extras)
-
+            r = r.clahe()
         return r
 
     def mpp_or_error(self) -> float:
