@@ -1,20 +1,13 @@
 import io
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping
 from itertools import zip_longest
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import cv2
 import numpy as np
-from glow import around
 from lxml import etree
 from lxml.etree import XMLParser, fromstring
 from PIL import Image, ImageCms
-
-from bipl import env
-
-if TYPE_CHECKING:
-    from ._slide import Slide
 
 # ------------------------- flat list of properties --------------------------
 
@@ -143,48 +136,6 @@ def gdal_parse_mpp(meta: Mapping) -> list[float]:
     return []
 
 
-def get_transform(slide: 'Slide') -> Callable[[np.ndarray], np.ndarray] | None:
-    if env.BIPL_CLAHE:
-        return clahe
-
-    if _RGB_RAMPS is not None:
-        image = slide.thumbnail()
-        *luts, = map(_get_lut, cv2.split(image), _RGB_RAMPS)
-        return _Lut(luts)
-
-    return None
-
-
-# ---------------------------- histogram matching ----------------------------
-
-
-def _get_lut(src: np.ndarray, dst_ramp: np.ndarray) -> np.ndarray:
-    src_ramp = _get_ramp(src)  # [0..1]
-    lut = np.interp(src_ramp, dst_ramp, np.arange(256))  # [0..255]
-    return around(lut.clip(0, 255), dtype='u1')
-
-
-def _get_ramp(im: np.ndarray) -> np.ndarray:
-    # 0..255 to 0..1
-    hist = np.bincount(im.ravel(), minlength=256).astype('f8')
-    hist /= hist.sum()
-
-    bins, = np.where(hist)
-    ramp = hist[bins].cumsum()
-    return np.interp(np.arange(256), bins, ramp)  # 256 of [0..1] @ f8
-
-
-@dataclass(frozen=True)
-class _Lut:
-    luts: Sequence[np.ndarray]
-
-    def __call__(self, image: np.ndarray) -> np.ndarray:
-        return cv2.merge([
-            cv2.LUT(plane, lut)
-            for plane, lut in zip(cv2.split(image), self.luts)
-        ])
-
-
 # ------------- contrast-limited adaptive histogram equalization -------------
 
 
@@ -211,8 +162,3 @@ class Icc:
         pil = Image.fromarray(image)
         pil = ImageCms.applyTransform(pil, self._tf)
         return np.array(pil, copy=False)
-
-
-_RGB_RAMPS = None
-if env.BIPL_RGB_RAMPS:
-    _RGB_RAMPS = np.load(env.BIPL_RGB_RAMPS).reshape(3, 256)

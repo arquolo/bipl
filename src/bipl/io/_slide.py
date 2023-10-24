@@ -18,7 +18,7 @@ from bipl.ops import normalize_loc, resize
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Item, Lod
 from ._tiff import Tiff
-from ._util import get_transform
+from ._util import clahe
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -152,16 +152,12 @@ class Slide:
                 }
                 r = replace(r, extras=extras)
 
-        fn = get_transform(r)
-        if fn is None:
-            return r
-        return replace(
-            r,
-            lods=[lod.apply(fn, pad=64) for lod in r.lods],
-            extras={
-                k: i.apply(fn) for k, i in r.extras.items()
-            },
-        )
+        if env.BIPL_CLAHE:
+            lods = *(lod.apply(clahe, pad=64) for lod in r.lods),
+            extras = {k: i.apply(clahe) for k, i in r.extras.items()}
+            r = replace(r, lods=lods, extras=extras)
+
+        return r
 
     def mpp_or_error(self) -> float:
         if self.mpp is None:
