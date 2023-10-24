@@ -1,7 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import zip_longest
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
@@ -10,6 +10,9 @@ from lxml import etree
 from lxml.etree import XMLParser, fromstring
 
 from bipl import env
+
+if TYPE_CHECKING:
+    from ._slide import Slide
 
 # ------------------------- flat list of properties --------------------------
 
@@ -138,13 +141,12 @@ def gdal_parse_mpp(meta: Mapping) -> list[float]:
     return []
 
 
-def get_transform(
-    image: np.ndarray,
-) -> Callable[[np.ndarray], np.ndarray] | None:
+def get_transform(slide: 'Slide') -> Callable[[np.ndarray], np.ndarray] | None:
     if env.BIPL_CLAHE:
         return clahe
 
     if _RGB_RAMPS is not None:
+        image = slide.thumbnail()
         *luts, = map(_get_lut, cv2.split(image), _RGB_RAMPS)
         return _Lut(luts)
 

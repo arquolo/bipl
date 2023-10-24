@@ -139,7 +139,7 @@ class Slide:
         )
 
     def tonemap(self) -> 'Slide':
-        fn = get_transform(self.thumbnail())
+        fn = get_transform(self)
         if fn is None:
             return self
         return replace(
@@ -229,7 +229,7 @@ class Slide:
            z0_yx_offset: tuple[int, ...],
            dsize: int | tuple[int, ...],
            *,
-           scale: float | None = 1,
+           scale: float | None = None,
            mpp: float | None = None,
            tol: float = 0.01) -> np.ndarray:
         """Read square region starting with offset"""
