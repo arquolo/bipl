@@ -2,7 +2,6 @@
 
 ## openslide
 
-- Upgrade binaries from 3.4.1 to 4.0 (`libopenslide-0.dll` -> `libopenslide-1.dll`)
 - Check if `libopenslide==4.0` present in Ubuntu repos
 
 ## libtiff

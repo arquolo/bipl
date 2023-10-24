@@ -14,7 +14,7 @@ _BASEURL = ('https://github.com/openslide/openslide-winbuild/releases/download'
             '/v{version}/openslide-win64-{version}.zip')
 _FILTERS = {
     '20221217': r'(libjpeg-62|libtiff-6|zlib1).dll',
-    '20230414': r'.*\.dll',
+    '20231011': r'.*\.dll',
 }
 _URLS = {
     _BASEURL.format(version=version): re.compile(filter_)
