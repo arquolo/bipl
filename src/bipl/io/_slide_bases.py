@@ -4,13 +4,16 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from math import ceil
-from typing import final
+from typing import TYPE_CHECKING, final
 
 import cv2
 import numpy as np
 
 from bipl import env
 from bipl.ops import Tile, get_fusion, normalize_loc, resize
+
+if TYPE_CHECKING:
+    from ._util import Icc
 
 REGISTRY: dict[re.Pattern, list[type['Driver']]] = {}
 _MIN_TILE = 256
@@ -32,6 +35,10 @@ class Item:
 
     def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_PostItem':
         return _PostItem(self.shape, self, fn)
+
+    @property
+    def icc(self) -> 'Icc | None':
+        return None
 
 
 @dataclass(frozen=True)

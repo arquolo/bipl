@@ -139,14 +139,27 @@ class Slide:
         )
 
     def tonemap(self) -> 'Slide':
-        fn = get_transform(self)
+        r = self
+        if env.BIPL_ICC:
+            if icc_0 := r.lods[0].icc:
+                lods = *(lod.apply(icc_0) for lod in r.lods),
+                r = replace(r, lods=lods)
+
+            if any(e for e in r.extras.values() if e.icc):
+                extras = {
+                    t: e.apply(e.icc) if e.icc else e
+                    for t, e in r.extras.items()
+                }
+                r = replace(r, extras=extras)
+
+        fn = get_transform(r)
         if fn is None:
-            return self
+            return r
         return replace(
-            self,
-            lods=[lod.apply(fn) for lod in self.lods],
+            r,
+            lods=[lod.apply(fn) for lod in r.lods],
             extras={
-                k: i.apply(fn) for k, i in self.extras.items()
+                k: i.apply(fn) for k, i in r.extras.items()
             },
         )
 

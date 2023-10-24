@@ -1,3 +1,4 @@
+import io
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -8,6 +9,7 @@ import numpy as np
 from glow import around
 from lxml import etree
 from lxml.etree import XMLParser, fromstring
+from PIL import Image, ImageCms
 
 from bipl import env
 
@@ -153,6 +155,9 @@ def get_transform(slide: 'Slide') -> Callable[[np.ndarray], np.ndarray] | None:
     return None
 
 
+# ---------------------------- histogram matching ----------------------------
+
+
 def _get_lut(src: np.ndarray, dst_ramp: np.ndarray) -> np.ndarray:
     src_ramp = _get_ramp(src)  # [0..1]
     lut = np.interp(src_ramp, dst_ramp, np.arange(256))  # [0..255]
@@ -180,6 +185,9 @@ class _Lut:
         ])
 
 
+# ------------- contrast-limited adaptive histogram equalization -------------
+
+
 def clahe(im: np.ndarray) -> np.ndarray:
     h, w = im.shape[:2]
     cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(w // 64, h // 64))
@@ -187,6 +195,21 @@ def clahe(im: np.ndarray) -> np.ndarray:
     ls, a, b = cv2.split(cv2.cvtColor(im, cv2.COLOR_RGB2LAB))
     ls = cl.apply(ls)
     return cv2.cvtColor(cv2.merge([ls, a, b]), cv2.COLOR_LAB2RGB)
+
+
+# -------------------------- image color correction --------------------------
+
+
+class Icc:
+    def __init__(self, icc: bytes) -> None:
+        srgb = ImageCms.createProfile('sRGB')
+        self._tf = ImageCms.buildTransformFromOpenProfiles(
+            io.BytesIO(icc), srgb, inMode='RGB', outMode='RGB')
+
+    def __call__(self, image: np.ndarray) -> np.ndarray:
+        pil = Image.fromarray(image)
+        pil = ImageCms.applyTransform(pil, self._tf)
+        return np.array(pil, copy=False)
 
 
 _RGB_RAMPS = None

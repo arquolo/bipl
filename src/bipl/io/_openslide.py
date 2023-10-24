@@ -10,24 +10,26 @@ __all__ = ['Openslide']
 
 import weakref
 from collections.abc import Iterator
-from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int64,
-                    c_ubyte, c_void_p)
+from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int32,
+                    c_int64, c_ubyte, c_void_p)
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from packaging.version import Version
 
 from ._libs import load_library
 from ._slide_bases import Driver, Item, Lod
-from ._util import unflatten
+from ._util import Icc, unflatten
 
-OSD = load_library('libopenslide', 0)
+OSD = load_library('libopenslide', 1, 0)
 
 sptr = POINTER(c_ubyte)
 OSD.openslide_open.restype = sptr
 OSD.openslide_close.argtypes = [sptr]
 
-OSD.openslide_get_error.restype \
+OSD.openslide_get_version.restype \
+    = OSD.openslide_get_error.restype \
     = OSD.openslide_get_property_value.restype \
     = c_char_p
 
@@ -35,11 +37,36 @@ OSD.openslide_get_property_names.restype \
     = OSD.openslide_get_associated_image_names.restype \
     = POINTER(c_char_p)
 
+OSD.openslide_get_level_dimensions.argtypes = [
+    sptr, c_int32, POINTER(c_int64),
+    POINTER(c_int64)
+]
+
+OSD.openslide_get_level_downsample.argtypes = [sptr, c_int32]
 OSD.openslide_get_level_downsample.restype = c_double
 OSD.openslide_read_associated_image.argtypes = [sptr, c_char_p, c_void_p]
+
 OSD.openslide_read_region.argtypes = [
-    sptr, c_void_p, c_int64, c_int64, c_int64, c_int64, c_int64
+    sptr, c_void_p, c_int64, c_int64, c_int32, c_int64, c_int64
 ]
+
+# ICC profiles, available since OpenSlide 4.0
+_version = OSD.openslide_get_version()
+_has_icc = False
+if _version and Version(_version.decode()) >= Version('4.0'):
+    OSD.openslide_get_icc_profile_size.argtypes = [sptr]
+    OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
+        sptr, c_char_p
+    ]
+    OSD.openslide_get_icc_profile_size.restype \
+        = OSD.openslide_get_associated_image_icc_profile_size.restype \
+        = c_int64
+
+    OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
+    OSD.openslide_read_associated_image_icc_profile.argtypes = [
+        sptr, c_char_p, c_void_p
+    ]
+    _has_icc = True
 
 
 def _ntas_to_iter(null_terminated_array_of_strings) -> Iterator[bytes]:
@@ -94,6 +121,21 @@ class _Item(Item):
         rgb = _mbgra_to_rgb(bgra, self.osd.bg_color)
         return np.ascontiguousarray(rgb)
 
+    @property
+    def icc(self) -> Icc | None:
+        if not _has_icc:
+            return None
+
+        size = OSD.openslide_get_associated_image_icc_profile_size(
+            self.osd.ptr, self.name)
+        if not size:
+            return None
+
+        buf = np.empty(size, 'u1')
+        OSD.openslide_read_associated_image_icc_profile(
+            self.osd.ptr, self.name, c_void_p(buf.ctypes.data))
+        return Icc(buf.tobytes())
+
 
 @dataclass(frozen=True)
 class _Lod(Lod):
@@ -122,6 +164,10 @@ class _Lod(Lod):
 
         return self._expand(rgb, valid_box, box, self.osd.bg_color)
 
+    @property
+    def icc(self) -> Icc | None:
+        return self.osd.icc
+
 
 class Openslide(Driver):
     def __init__(self, path: str):
@@ -141,6 +187,7 @@ class Openslide(Driver):
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
         self.mpp = self._mpp()
+        self.icc = self._icc()
 
     def _mpp(self) -> float | None:
         mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
@@ -203,3 +250,15 @@ class Openslide(Driver):
         y1, x1 = (o + s if o is not None and s is not None else None
                   for o, s in [(y0, h), (x0, w)])
         return slice(y0, y1), slice(x0, x1)
+
+    def _icc(self) -> Icc | None:
+        if not _has_icc:
+            return None
+
+        size = OSD.openslide_get_icc_profile_size(self.ptr)
+        if not size:
+            return None
+
+        buf = np.empty(size, 'u1')
+        OSD.openslide_read_icc_profile(self.ptr, c_void_p(buf.ctypes.data))
+        return Icc(buf.tobytes())

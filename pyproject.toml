@@ -45,6 +45,8 @@ dependencies = [
     "lxml",
     "numpy~=1.21",
     "opencv-python-headless~=4.0",
+    "packaging",
+    "pillow",
     "pydantic~=1.2",
     "tqdm",
 ]

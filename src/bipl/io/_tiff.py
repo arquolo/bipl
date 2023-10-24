@@ -29,7 +29,7 @@ from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Item, Lod
-from ._util import is_aperio, parse_aperio_description
+from ._util import Icc, is_aperio, parse_aperio_description
 
 _T = TypeVar('_T')
 
@@ -155,6 +155,13 @@ class _Tags:
 
         self.color = _ColorInfo(colorspace, subsampling)
 
+        self.icc = None
+        icc_size = c_int()
+        icc_ptr = c_char_p()
+        if (TIFF.TIFFGetField(self._ptr, 34675, byref(icc_size),
+                              byref(icc_ptr)) and icc_size.value > 0):
+            self.icc = Icc(string_at(icc_ptr, icc_size.value))
+
     def _get(
         self,
         tp: type['ctypes._SimpleCData[_T]'],
@@ -222,7 +229,12 @@ class JpegArray(_CachedArray):
 @dataclass(frozen=True)
 class _ItemBase(Item):
     index: int
+    icc_impl: Icc | None
     tiff: 'Tiff'
+
+    @property
+    def icc(self) -> Icc | None:
+        return self.icc_impl
 
 
 @dataclass(frozen=True)
@@ -447,7 +459,7 @@ class Tiff(Driver):
 
         # Tile shape, if applicable
         if not TIFF.TIFFIsTiled(self._ptr):  # Not yet supported
-            return _Item(shape, index, self, head, vendor)
+            return _Item(shape, index, tags.icc, self, head, vendor)
 
         # Tile sizes
         tile = (*tags.tile_size, tags.spp)
@@ -463,7 +475,7 @@ class Tiff(Driver):
             if (tbc == 0).any():
                 raise ValueError('Found 0s in tile size table')
 
-        return _Lod(shape, index, self, mpp, tags.color, bg_color,
+        return _Lod(shape, index, tags.icc, self, mpp, tags.color, bg_color,
                     tags.compression, jpt, tile, tbc)
 
     def __getitem__(self, index: int) -> Item:
