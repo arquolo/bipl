@@ -1,4 +1,4 @@
-__all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
+__all__ = ['Driver', 'Image', 'ImageLevel', 'REGISTRY']
 
 import re
 from collections.abc import Callable
@@ -20,7 +20,7 @@ _MIN_TILE = 256
 
 
 @dataclass(frozen=True)
-class Item:
+class Image:
     shape: tuple[int, ...]
 
     @property
@@ -28,13 +28,16 @@ class Item:
         raise NotImplementedError
 
     def numpy(self) -> np.ndarray:
-        return np.array(self, copy=False)
-
-    def __array__(self) -> np.ndarray:
+        """Convert to ndarray"""
         raise NotImplementedError
 
-    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_PostItem':
-        return _PostItem(self.shape, self, fn)
+    @final
+    def __array__(self) -> np.ndarray:
+        """numpy.array compatibility"""
+        return self.numpy()
+
+    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_LambdaImage':
+        return _LambdaImage(self.shape, self, fn)
 
     @property
     def icc(self) -> 'Icc | None':
@@ -42,7 +45,7 @@ class Item:
 
 
 @dataclass(frozen=True)
-class Lod(Item):
+class ImageLevel(Image):
     mpp: float | None
 
     @final
@@ -64,16 +67,20 @@ class Lod(Item):
         return self.crop(y_loc, x_loc)[:, :, c_loc]
 
     @final
-    def __array__(self) -> np.ndarray:
-        """Reads whole LOD in single call"""
+    def numpy(self) -> np.ndarray:
+        """Reads whole image in single op"""
         return self[:, :]
 
-    def rescale(self, scale: float) -> 'Lod':
+    def rescale(self, scale: float) -> 'ImageLevel':
+        """
+        Resize image to `src.size * scale`.
+        I.e. downscale if `scale < 1`, upscale otherwise.
+        """
         if scale == 1:
             return self
 
         base = self
-        if isinstance(base, ProxyLod):
+        if isinstance(base, ProxyLevel):
             scale = base.scale * scale
             base = base.base
 
@@ -81,11 +88,11 @@ class Lod(Item):
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
         mpp = base.mpp / scale if base.mpp else None
         if scale > 0.5:  # Downscale to less then 2x, or upsample
-            return ProxyLod((h, w, c), mpp, scale, base)
+            return ProxyLevel((h, w, c), mpp, scale, base)
 
-        zoom = 2 ** (int(1 / scale).bit_length() - 1)
-        r_tile = max(_MIN_TILE // zoom, 1)
-        return TiledProxyLod((h, w, c), mpp, scale, base, zoom, r_tile)
+        downsample = 2 ** (int(1 / scale).bit_length() - 1)
+        r_tile = max(_MIN_TILE // downsample, 1)
+        return TiledProxyLevel((h, w, c), mpp, scale, base, downsample, r_tile)
 
     def _unpack_loc(
         self,
@@ -108,23 +115,23 @@ class Lod(Item):
     @final
     def apply(self,
               fn: Callable[[np.ndarray], np.ndarray],
-              pad: int = 0) -> '_PostLod':
-        return _PostLod(self.shape, self.mpp, self, fn, pad)
+              pad: int = 0) -> '_LambdaLevel':
+        return _LambdaLevel(self.shape, self.mpp, self, fn, pad)
 
 
 @dataclass(frozen=True)
-class _PostItem(Item):
-    base: Item
+class _LambdaImage(Image):
+    base: Image
     fn: Callable[[np.ndarray], np.ndarray]
 
-    def __array__(self) -> np.ndarray:
-        im = self.base.__array__()
+    def numpy(self) -> np.ndarray:
+        im = self.base.numpy()
         return self.fn(im)
 
 
 @dataclass(frozen=True)
-class _PostLod(Lod):
-    base: Lod
+class _LambdaLevel(ImageLevel):
+    base: ImageLevel
     fn: Callable[[np.ndarray], np.ndarray]
     pad: int = 64
 
@@ -139,9 +146,9 @@ class _PostLod(Lod):
 
 
 @dataclass(frozen=True)
-class ProxyLod(Lod):
+class ProxyLevel(ImageLevel):
     scale: float
-    base: Lod
+    base: ImageLevel
 
     def _get_loc(self, *src_loc: slice) -> np.ndarray:
         return self.base[src_loc]
@@ -159,8 +166,8 @@ class ProxyLod(Lod):
 
 
 @dataclass(frozen=True)
-class TiledProxyLod(ProxyLod):
-    zoom: int
+class TiledProxyLevel(ProxyLevel):
+    downsample: int
     r_tile: int
 
     def _get_loc(self, *src_loc: slice) -> np.ndarray:
@@ -169,9 +176,9 @@ class TiledProxyLod(ProxyLod):
         if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
             return super()._get_loc(*src_loc)
 
-        r_shape = *(ceil(size / self.zoom) for size in s_shape),
+        r_shape = *(ceil(size / self.downsample) for size in s_shape),
         r_tile = self.r_tile
-        s_tile = r_tile * self.zoom
+        s_tile = r_tile * self.downsample
 
         ty, tx = (ceil(size / s_tile) for size in s_shape)
         tgrid = np.mgrid[:ty, :tx].reshape(2, -1).T
@@ -200,23 +207,23 @@ class Driver:
         raise NotImplementedError
 
     def __len__(self) -> int:
-        """Count of indexed items"""
+        """Count of indexed images, usually resolution images"""
         return 0
 
-    def __getitem__(self, index: int) -> Item:
-        """Gives indexed item"""
+    def __getitem__(self, index: int) -> Image:
+        """Gives indexed image"""
         raise NotImplementedError
 
-    def named_items(self) -> dict[str, Item]:
+    def named_items(self) -> dict[str, Image]:
         keys = self.keys()
         return {k: self.get(k) for k in keys}
 
     def keys(self) -> list[str]:
-        """List of names for named items"""
+        """Names of associated images"""
         return []
 
-    def get(self, key: str) -> Item:
-        """Gives named item"""
+    def get(self, key: str) -> Image:
+        """Get assosiated image by key"""
         raise NotImplementedError
 
     @property

@@ -33,11 +33,11 @@ class Decimator:
 @dataclass(frozen=True, slots=True)
 class Zipper:
     v: NumpyLike
-    v_scale: int
+    v_scale: float
 
     def __call__(self, tile: Tile) -> tuple[Vec, Vec, np.ndarray, np.ndarray]:
         v_scale = self.v_scale
-        loc = *(slice(o // v_scale, (o + s) // v_scale)
+        loc = *(slice(round(o * v_scale), round((o + s) * v_scale))
                 for o, s in zip(tile.vec, tile.data.shape[:2])),
         return tile.idx, tile.vec, tile.data, self.v[loc]
 

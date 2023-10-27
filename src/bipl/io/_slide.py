@@ -5,6 +5,7 @@ import warnings
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from math import ceil
 from pathlib import Path
 from typing import final, overload
 from warnings import warn
@@ -16,9 +17,9 @@ from bipl import env
 from bipl.ops import normalize_loc, resize
 
 from ._openslide import Openslide
-from ._slide_bases import REGISTRY, Driver, Item, Lod
+from ._slide_bases import REGISTRY, Driver, Image, ImageLevel
 from ._tiff import Tiff
-from ._util import clahe
+from ._util import clahe, round2
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -53,7 +54,7 @@ for _drv, _regex in [  # LIFO, last driver takes priority
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
 @memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
-def _cached_open(path: str) -> 'Slide':
+def _cached_open(path: str, **kwargs) -> 'Slide':
     last_exc = BaseException()
     matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)
                for tp in tps_)
@@ -61,7 +62,7 @@ def _cached_open(path: str) -> 'Slide':
     if tps:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
-                return Slide.from_file(path, tp).tonemap()
+                return Slide.from_file(path, tp).tonemap(**kwargs)
             except (ValueError, TypeError) as exc:
                 last_exc = exc
         raise last_exc from None
@@ -86,12 +87,12 @@ class Slide:
     # TODO: call .close in finalizer
     path: str
     shape: tuple[int, ...]
-    pools: tuple[int, ...]
+    downsamples: tuple[int, ...]
     mpp: float | None
     driver: str
     bbox: tuple = field(repr=False)
-    lods: tuple[Lod, ...] = field(repr=False)
-    extras: dict[str, Item] = field(repr=False)
+    levels: tuple[ImageLevel, ...] = field(repr=False)
+    extras: dict[str, Image] = field(repr=False)
 
     @classmethod
     def from_file(
@@ -102,46 +103,46 @@ class Slide:
     ) -> 'Slide':
         driver = driver_fn(path)
 
-        num_items = len(driver)
-        if num_items == 0:
+        num_images = len(driver)
+        if num_images == 0:
             raise ValueError('Empty file')
 
-        item_0, *items = (driver[idx] for idx in range(num_items))
-        if not isinstance(item_0, Lod):
+        im_0, *images = (driver[idx] for idx in range(num_images))
+        if not isinstance(im_0, ImageLevel):
             raise TypeError('First pyramid layer is not tiled')
 
         # Retrieve all sub-images
-        lods: dict[int, Lod] = {1: item_0}
-        extras: dict[str, Item] = {}
-        for item in items:
-            if isinstance(item, Lod):
-                pool = round(item_0.shape[0] / item.shape[0])
-                lods[pool] = item
-            elif key := item.key:
-                extras[key] = item
+        levels: dict[int, ImageLevel] = {1: im_0}
+        extras: dict[str, Image] = {}
+        for im in images:
+            if isinstance(im, ImageLevel):
+                downsample = round2(im_0.shape[0] / im.shape[0])
+                levels[downsample] = im
+            elif key := im.key:
+                extras[key] = im
         extras |= driver.named_items()
 
-        zoom_levels = *sorted(lods.keys()),
-        # TODO: create virtual lods if zoom levels are too distant (ProxyLod?)
+        level_downsamples = *sorted(levels.keys()),
+        # TODO: make virtual levels if downsamples are too distant (ProxyLevel)
 
         if mpp is None:  # If no override is passed, use native if present
-            mpp = lods[1].mpp
+            mpp = levels[1].mpp
 
         return Slide(
             path=path,
-            shape=lods[1].shape,
+            shape=levels[1].shape,
             mpp=mpp,
-            pools=zoom_levels,
+            downsamples=level_downsamples,
             driver=type(driver).__name__,
             bbox=driver.bbox,
-            lods=tuple(lods[pool] for pool in zoom_levels),
+            levels=tuple(levels[zoom] for zoom in level_downsamples),
             extras=extras,
         )
 
     def icc(self) -> 'Slide':
-        if icc_0 := self.lods[0].icc:
-            lods = *(lod.apply(icc_0) for lod in self.lods),
-            self = replace(self, lods=lods)
+        if icc_0 := self.levels[0].icc:
+            levels = *(il.apply(icc_0) for il in self.levels),
+            self = replace(self, levels=levels)
 
         if any(e.icc for e in self.extras.values()):
             extras = {
@@ -153,15 +154,15 @@ class Slide:
         return self
 
     def clahe(self) -> 'Slide':
-        lods = *(lod.apply(clahe, pad=64) for lod in self.lods),
+        levels = *(il.apply(clahe, pad=64) for il in self.levels),
         extras = {k: i.apply(clahe) for k, i in self.extras.items()}
-        return replace(self, lods=lods, extras=extras)
+        return replace(self, levels=levels, extras=extras)
 
-    def tonemap(self) -> 'Slide':
+    def tonemap(self, icc: bool, clahe: bool) -> 'Slide':
         r = self
-        if env.BIPL_ICC:
+        if icc:
             r = r.icc()
-        if env.BIPL_CLAHE:
+        if clahe:
             r = r.clahe()
         return r
 
@@ -169,6 +170,14 @@ class Slide:
         if self.mpp is None:
             raise ValueError('Slide`s MPP is unknown')
         return self.mpp
+
+    @property
+    def pools(self) -> tuple[int, ...]:
+        warnings.warn(
+            '"Slide.pools" is deprecated. Use "Slide.downsamples"',
+            category=DeprecationWarning,
+            stacklevel=2)
+        return self.downsamples
 
     @property
     def spacing(self) -> float | None:
@@ -181,45 +190,47 @@ class Slide:
     def __reduce__(self) -> tuple:
         return Slide.open, (self.path, )
 
-    def best_lod_for(self,
-                     pool: float,
-                     *,
-                     tol: float = 0.01) -> tuple[int, Lod]:
-        """Gives the most detailed LOD below `pool`"""
-        pool = pool * max(1, 1 + tol)
-        idx = max(bisect_right(self.pools, pool) - 1, 0)
-        return self.pools[idx], self.lods[idx]
+    def best_level_for(
+        self,
+        downsample: float,
+        /,
+        *,
+        tol: float = 0.01,
+    ) -> tuple[int, ImageLevel]:
+        """Gives the most detailed LOD below `downsample`"""
+        downsample = downsample * max(1, 1 + tol)
+        idx = max(bisect_right(self.downsamples, downsample) - 1, 0)
+        return self.downsamples[idx], self.levels[idx]
 
-    def resample(self, mpp: float, *, tol: float = 0.01) -> Lod:
+    def resample(self, mpp: float, *, tol: float = 0.01) -> ImageLevel:
         """Resample slide to specific resolution"""
-        zoom = mpp / self.mpp_or_error()
-        return self.pool(zoom, tol=tol)
+        downsample = mpp / self.mpp_or_error()
+        return self.pool(downsample, tol=tol)
 
-    def pool(self, zoom: float, *, tol: float = 0.01) -> Lod:
+    def pool(self, downsample: float, /, *, tol: float = 0.01) -> ImageLevel:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
-        p, lod = self.best_lod_for(zoom, tol=tol)
-        if p == zoom:
-            return lod
-        return lod.rescale(p / zoom)
+        d, lvl = self.best_level_for(downsample, tol=tol)
+        if d == downsample:
+            return lvl
+        return lvl.rescale(d / downsample)
 
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieves tile"""
-        # TODO: Ignore step, always redirect to self.lods[0].__getitem__
+        # TODO: Ignore step, always redirect to self.levels[0].__getitem__
         y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
 
-        step0, step1 = y_loc.step, x_loc.step
-        if step0 != step1:
-            raise ValueError('slice steps should be the same for each axis')
-        if step0 <= 0:
+        try:
+            step, = {y_loc.step, x_loc.step}
+        except ValueError:
+            raise ValueError('all slices should have the same step') from None
+        if step <= 0:
             raise ValueError('slice steps should be positive')
 
-        pool, lod = self.best_lod_for(step0)
-        yx_loc = *(slice(s.start // pool, s.stop // pool)
-                   for s in (y_loc, x_loc)),
-        image = lod.crop(*yx_loc)
+        ds, level = self.best_level_for(step)
+        yx_loc = *(slice(s.start // ds, s.stop // ds) for s in (y_loc, x_loc)),
+        image = level.crop(*yx_loc)
 
-        ratio = pool / step0
-        dsize = *(round(ratio * s) for s in image.shape[:2]),
+        dsize = *(ceil((s.stop - s.start) / step) for s in (y_loc, x_loc)),
         return resize(image, dsize)[:, :, c_loc]
 
     @overload
@@ -254,30 +265,31 @@ class Slide:
 
         if scale is None:
             if mpp is None:
-                raise ValueError('Only one of scale/mpp should be None')
-            scale = mpp / self.mpp_or_error()
+                raise ValueError('Only one of zoom/mpp should be None')
+            scale = self.mpp_or_error() / mpp
 
-        pool, lod = self.best_lod_for(scale, tol=tol)
-        loc = *(slice(int(c) // pool,
-                      int(c + d * scale) // pool)
-                for c, d in zip(z0_yx_offset, dsize)),
-        image = lod.crop(*loc)
+        ds, lvl = self.best_level_for(1 / scale, tol=tol)
+        loc = *(slice(int(c / ds), int((c + size / scale) / ds))
+                for c, size in zip(z0_yx_offset, dsize)),
+        image = lvl.crop(*loc)
         return resize(image, dsize)
 
     def extra(self, name: str) -> np.ndarray | None:
-        if item := self.extras.get(name):
-            return np.array(item, copy=False, order='C')
+        if im := self.extras.get(name):
+            return im.numpy()
         return None
 
     def thumbnail(self) -> np.ndarray:
-        item = self.extras.get('thumbnail')
-        if not item:
-            item = self.lods[-1]
-        return np.asarray(item)
+        return self.extras.get('thumbnail', self.levels[-1]).numpy()
 
     @classmethod
-    def open(cls, anypath: Path | str) -> 'Slide':
+    def open(cls,
+             anypath: Path | str,
+             /,
+             *,
+             icc: bool = env.BIPL_ICC,
+             clahe: bool = env.BIPL_CLAHE) -> 'Slide':
         """Open multi-scale image."""
         if isinstance(anypath, Path):
             anypath = Path(anypath).resolve().absolute().as_posix()
-        return _cached_open(anypath)
+        return _cached_open(anypath, icc=icc, clahe=clahe)

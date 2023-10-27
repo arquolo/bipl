@@ -28,7 +28,7 @@ import numpy as np
 from bipl._env import env
 
 from ._libs import load_library
-from ._slide_bases import Driver, Item, Lod
+from ._slide_bases import Driver, Image, ImageLevel
 from ._util import Icc, is_aperio, parse_aperio_description
 
 _T = TypeVar('_T')
@@ -225,9 +225,11 @@ class JpegArray(_CachedArray):
             self.data, tables=self.jpt, colorspace=self.colorspace)
 
 
-# -------------------- item, lod & opener implementations --------------------
+# ------------------ image, level & opener implementations -------------------
+
+
 @dataclass(frozen=True)
-class _ItemBase(Item):
+class _BaseImage(Image):
     index: int
     icc_impl: Icc | None
     tiff: 'Tiff'
@@ -238,7 +240,7 @@ class _ItemBase(Item):
 
 
 @dataclass(frozen=True)
-class _Item(_ItemBase):
+class _Image(_BaseImage):
     head: list[str]
     vendor: str
 
@@ -251,7 +253,7 @@ class _Item(_ItemBase):
                 return key
         return None
 
-    def __array__(self) -> np.ndarray:
+    def numpy(self) -> np.ndarray:
         h, w = self.shape[:2]
         rgba = np.empty((h, w, 4), dtype='u1')
 
@@ -268,7 +270,7 @@ class _Item(_ItemBase):
 
 
 @dataclass(frozen=True)
-class _Lod(Lod, _ItemBase):
+class _Level(ImageLevel, _BaseImage):
     color: _ColorInfo
     bg_color: np.ndarray
     compression: _Compression
@@ -282,7 +284,7 @@ class _Lod(Lod, _ItemBase):
 
         if not nbytes:  # If nothing to read, don't read
             raise ValueError('File has corrupted tiles with zero size')
-            # TODO: read from previous lod
+            # TODO: read from previous level
             # * If tile is empty on level N,
             # * then all tiles on levels >N are invalid, whether empty or not
             return np.broadcast_to(self.bg_color, self.tile)
@@ -426,7 +428,7 @@ class Tiff(Driver):
             return float(mpp)
         return None
 
-    def _get(self, index: int) -> Item:
+    def _get(self, index: int) -> Image:
         tags = _Tags(self._ptr)
 
         if tags.is_planar != 1:
@@ -459,7 +461,7 @@ class Tiff(Driver):
 
         # Tile shape, if applicable
         if not TIFF.TIFFIsTiled(self._ptr):  # Not yet supported
-            return _Item(shape, index, tags.icc, self, head, vendor)
+            return _Image(shape, index, tags.icc, self, head, vendor)
 
         # Tile sizes
         tile = (*tags.tile_size, tags.spp)
@@ -475,9 +477,9 @@ class Tiff(Driver):
             if (tbc == 0).any():
                 raise ValueError('Found 0s in tile size table')
 
-        return _Lod(shape, index, tags.icc, self, mpp, tags.color, bg_color,
-                    tags.compression, jpt, tile, tbc)
+        return _Level(shape, index, tags.icc, self, mpp, tags.color, bg_color,
+                      tags.compression, jpt, tile, tbc)
 
-    def __getitem__(self, index: int) -> Item:
+    def __getitem__(self, index: int) -> Image:
         with self.ifd(index):
             return self._get(index)

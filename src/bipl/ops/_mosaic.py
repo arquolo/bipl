@@ -6,6 +6,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain
+from math import ceil
 from typing import TypeVar, cast
 
 import cv2
@@ -162,10 +163,10 @@ class _BaseView:
         it = map(Cropper(self.shape), self)
         return _IterView(self.m, self.shape, self.cells, it)
 
-    def zip_with(self, view: np.ndarray, v_scale: int) -> '_ZipView':
+    def zip_with(self, view: np.ndarray, v_scale: float) -> '_ZipView':
         """Extracts tiles from `view` simultaneously with tiles from self"""
-        if v_scale < 1:
-            raise ValueError('v_scale should be greater than 1, '
+        if v_scale > 1:
+            raise ValueError('v_scale should be less than 1, '
                              f'got: {v_scale}')
         return _ZipView(self, view, v_scale)
 
@@ -180,7 +181,7 @@ class _BaseView:
 class _ZipView:
     source: _BaseView
     view: NumpyLike
-    v_scale: int
+    v_scale: float
 
     def __len__(self) -> int:
         return len(self.source)
@@ -284,32 +285,30 @@ class _TiledArrayView(_View):
     data: NumpyLike
     max_workers: int
 
-    def select(self, mask: np.ndarray, scale: int) -> '_TiledArrayView':
-        """Drop tiles where `mask` is 0"""
-        if mask.ndim == 3 and mask.shape[-1] == 1:  # Strip extra dim
-            mask = mask[..., 0]
+    def select(self,
+               mask: np.ndarray,
+               scale: float | None = None) -> '_TiledArrayView':
+        """
+        Subset non-masked (i.e. non-zeros in mask) tiles for iteration.
+        Mask size is "scale"-multiple of source image.
+        """
+        if mask.ndim == 3:  # Strip extra dim
+            mask = mask.squeeze(2)
         if mask.ndim != 2:
             raise ValueError(f'Mask should be 2D, got shape: {mask.shape}')
-        mask = mask.astype('u1')
+        if scale is None:
+            scale = max(ms / s for ms, s in zip(mask.shape, self.data.shape))
+
+        mask = np.where(mask, np.uint8(255), np.uint8(0))
+
+        tile = (self.m.step + self.m.overlap) * scale
+        if (h_tile := ceil(tile / 2)):
+            kernel = np.ones((3, 3), dtype='u1')
+            mask = cv2.dilate(mask, kernel, iterations=h_tile)
 
         ih, iw = self.ishape
-        step = self.m.step // scale
-        pad = self.m.overlap // (scale * 2)
+        cells = cv2.resize(mask, (iw, ih), interpolation=cv2.INTER_AREA)
 
-        mh, mw = (ih * step), (iw * step)
-        if mask.shape != (mh, mw):
-            mask_pad = [(0, max(0, s1 - s0))
-                        for s0, s1 in zip(mask.shape, (mh, mw))]
-            mask = np.pad(mask, mask_pad)[:mh, :mw]
-
-        if self.m.overlap:
-            kernel = np.ones((3, 3), dtype='u1')
-            mask = cv2.dilate(mask, kernel, iterations=pad)
-
-        if pad:
-            mask = np.pad(mask[:-pad, :-pad], [[pad, 0], [pad, 0]])
-
-        cells = mask.reshape(ih, step, iw, step).any((1, 3))
         return dataclasses.replace(self, cells=cells)
 
     def _slice_tile(self, iy: int, ix: int) -> Tile:

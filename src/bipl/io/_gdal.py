@@ -9,7 +9,7 @@ import numpy as np
 from osgeo import gdal, gdal_array
 from pydantic import AnyHttpUrl, ValidationError, parse_obj_as
 
-from ._slide_bases import Driver, Lod
+from ._slide_bases import Driver, ImageLevel
 from ._util import gdal_parse_mpp
 
 gdal.SetConfigOption('AWS_VIRTUAL_HOSTING', 'FALSE')
@@ -40,11 +40,11 @@ def _fix_if_url(s: str, /) -> str:
         raise FileNotFoundError(f'Neither a fs path nor URL: {s!r}') from None
 
 
-# TODO: use `Item` for auxilary images, if any
+# TODO: handle associated images via `base.Image`
 
 
 @dataclass(frozen=True)
-class _Lod(Lod):
+class _Level(ImageLevel):
     index: int
     g: 'Gdal'
     bands: tuple[gdal.Band, ...]
@@ -105,13 +105,13 @@ class Gdal(Driver):
     def __len__(self) -> int:
         return 1 + self.ds.GetRasterBand(1).GetOverviewCount()
 
-    def __getitem__(self, index: int) -> Lod:
+    def __getitem__(self, index: int) -> _Level:
         bands: tuple[gdal.Band, ...] = tuple(
             b if index == 0 else b.GetOverview(index - 1) for b in self._bands)
 
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
         mpp = self.mpp if index == 0 else None
-        return _Lod(shape, mpp, index, self, bands)
+        return _Level(shape, mpp, index, self, bands)
 
     def keys(self) -> list[str]:
         return []  # TODO: fill if GDAL can detect auxilary images

@@ -1,13 +1,15 @@
-import io
 from collections.abc import Mapping
+from io import BytesIO
 from itertools import zip_longest
+from math import log2
 from typing import Any
 
 import cv2
 import numpy as np
 from lxml import etree
 from lxml.etree import XMLParser, fromstring
-from PIL import Image, ImageCms
+from PIL.Image import fromarray
+from PIL.ImageCms import buildTransform, createProfile
 
 # ------------------------- flat list of properties --------------------------
 
@@ -154,11 +156,21 @@ def clahe(im: np.ndarray) -> np.ndarray:
 
 class Icc:
     def __init__(self, icc: bytes) -> None:
-        srgb = ImageCms.createProfile('sRGB')
-        self._tf: ImageCms.ImageCmsTransform = ImageCms.buildTransform(
-            io.BytesIO(icc), srgb, inMode='RGB', outMode='RGB')
+        f = BytesIO(icc)
+        srgb = createProfile('sRGB')
+        self._tf = buildTransform(f, srgb, inMode='RGB', outMode='RGB')
 
     def __call__(self, image: np.ndarray) -> np.ndarray:
-        pil = Image.fromarray(image)
+        pil = fromarray(image)
         pil = self._tf.apply(pil)
         return np.array(pil, copy=False)
+
+
+# -------------------------------- etc---------------------------------------
+
+
+def round2(x: float) -> int:
+    """Round to power to 2"""
+    assert x > 0
+    power = round(log2(x))
+    return 1 << power

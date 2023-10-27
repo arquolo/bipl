@@ -19,8 +19,8 @@ import numpy as np
 from packaging.version import Version
 
 from ._libs import load_library
-from ._slide_bases import Driver, Item, Lod
-from ._util import Icc, unflatten
+from ._slide_bases import Driver, Image, ImageLevel
+from ._util import Icc, round2, unflatten
 
 OSD = load_library('libopenslide', 1, 0)
 
@@ -106,7 +106,7 @@ def _mbgra_to_rgb(bgra: np.ndarray, rgb_base: np.ndarray) -> np.ndarray:
 
 
 @dataclass(frozen=True)
-class _Item(Item):
+class _Image(Image):
     name: bytes
     osd: 'Openslide'
 
@@ -114,7 +114,7 @@ class _Item(Item):
     def key(self) -> str:
         return self.name.decode()
 
-    def __array__(self) -> np.ndarray:
+    def numpy(self) -> np.ndarray:
         bgra = np.empty((*self.shape[:2], 4), 'u1')
         OSD.openslide_read_associated_image(self.osd.ptr, self.name,
                                             c_void_p(bgra.ctypes.data))
@@ -138,8 +138,8 @@ class _Item(Item):
 
 
 @dataclass(frozen=True)
-class _Lod(Lod):
-    pool: int
+class _Level(ImageLevel):
+    downsample: int
     index: int
     osd: 'Openslide'
 
@@ -154,8 +154,8 @@ class _Lod(Lod):
         OSD.openslide_read_region(
             self.osd.ptr,
             c_void_p(bgra.ctypes.data),
-            int(x0 * self.pool),
-            int(y0 * self.pool),
+            int(x0 * self.downsample),
+            int(y0 * self.downsample),
             self.index,
             int(x1 - x0),
             int(y1 - y0),
@@ -219,26 +219,27 @@ class Openslide(Driver):
     def __len__(self) -> int:
         return OSD.openslide_get_level_count(self.ptr)
 
-    def __getitem__(self, index: int) -> Lod:
+    def __getitem__(self, index: int) -> _Level:
         h, w = c_int64(), c_int64()
         OSD.openslide_get_level_dimensions(self.ptr, index, byref(w), byref(h))
-        pool: float = OSD.openslide_get_level_downsample(self.ptr, index)
-        if pool <= 0:
-            raise ValueError(f'invalid file, got level downsample: {pool}')
+        downsample = OSD.openslide_get_level_downsample(self.ptr, index)
+        if downsample <= 0:
+            raise ValueError(f'Invalid level downsample: {downsample}')
 
         mpp = self.mpp if index == 0 else None
-        return _Lod((h.value, w.value, 3), mpp, round(pool), index, self)
+        downsample = round2(downsample)
+        return _Level((h.value, w.value, 3), mpp, downsample, index, self)
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)
         return [name.decode() for name in _ntas_to_iter(names)]
 
-    def get(self, key: str) -> Item:
+    def get(self, key: str) -> _Image:
         name = key.encode()
         w, h = c_int64(), c_int64()
         OSD.openslide_get_associated_image_dimensions(self.ptr, name, byref(w),
                                                       byref(h))
-        return _Item((h.value, w.value, 3), name, self)
+        return _Image((h.value, w.value, 3), name, self)
 
     @property
     def bbox(self) -> tuple[slice, slice]:
