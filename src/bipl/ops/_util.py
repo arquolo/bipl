@@ -75,14 +75,18 @@ def resize(image: np.ndarray,
 
     h, w = hw
     interpolation = cv2.INTER_LINEAR
-    if antialias:
-        if env.BIPL_INTER_PYRAMID:
-            # * Progressive downsampling, fastest
-            for _ in range(int(f_max).bit_length() - 1):
-                image = cv2.resize(image, None, fx=0.5, fy=0.5)
-        else:
-            # * Use "box" window, slower
-            interpolation = cv2.INTER_AREA
+    if antialias:  # Downsampling
+        match env.BIPL_DOWN:
+            case 'box2d':  # Pyramid, box filter. Fastest
+                for _ in range(int(f_max).bit_length() - 1):
+                    image = cv2.resize(image, None, fx=0.5, fy=0.5)
+
+            case 'gauss':  # Pyramid, gauss filter. No aliasing. 2X slower
+                for _ in range(int(f_max).bit_length() - 1):
+                    image = cv2.pyrDown(image)
+
+            case 'area':  # No pyramid, box filter. Slowest
+                interpolation = cv2.INTER_AREA
 
     return cv2.resize(image, (w, h), interpolation=interpolation)
 
