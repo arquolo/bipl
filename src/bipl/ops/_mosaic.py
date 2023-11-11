@@ -15,7 +15,7 @@ from glow import chunked, map_n
 
 from ._tile import BlendCropper, Cropper, Decimator, Reconstructor, Zipper
 from ._types import NumpyLike, Tile, Vec
-from ._util import get_trapz, normalize_loc
+from ._util import get_trapz, padslice
 
 # TODO: allow result of .map/.map_batched to have different tile and step
 # NOTE: all classes here are stateless & their iterators are reentrant.
@@ -43,17 +43,6 @@ def _apply_batched(fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
 def _reweight(weight: np.ndarray, tile: np.ndarray) -> np.ndarray:
     assert tile.dtype.kind == 'f'
     return np.einsum('hwc,h,w -> hwc', tile, weight, weight, optimize=True)
-
-
-def _padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
-    loc = normalize_loc(loc, a.shape)
-
-    pos_loc = *(slice(max(s.start, 0), s.stop) for s in loc),
-    a = a[pos_loc]
-
-    pad = [(pos.start - raw.start, pos.stop - pos.start - size)
-           for raw, pos, size in zip(loc, pos_loc, a.shape)]
-    return np.pad(a, pad) if np.any(pad) else a
 
 
 # ------------------------------ mosaic setting ------------------------------
@@ -187,7 +176,6 @@ class _ZipView:
         return len(self.source)
 
     def __iter__(self) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
-        assert self.v_scale >= 1
         return map(Zipper(self.view, self.v_scale), self.source)
 
 
@@ -309,7 +297,7 @@ class _TiledArrayView(_View):
         ih, iw = self.ishape
         cells = cv2.resize(mask, (iw, ih), interpolation=cv2.INTER_AREA)
 
-        return dataclasses.replace(self, cells=cells)
+        return dataclasses.replace(self, cells=cells.astype(bool))
 
     def _slice_tile(self, iy: int, ix: int) -> Tile:
         """Slice source image to get overlapping tiles"""
@@ -318,7 +306,7 @@ class _TiledArrayView(_View):
             self.m.step * (i + 1),
         ) for i in (iy, ix))
 
-        data = _padslice(self.data, slice(y0, y1), slice(x0, x1))
+        data = padslice(self.data, slice(y0, y1), slice(x0, x1))
         return Tile(idx=(iy, ix), vec=(y0, x0), data=data)
 
     def _get_tile(self, iy: int, ix: int) -> Tile:

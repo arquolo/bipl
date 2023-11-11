@@ -3,14 +3,15 @@ __all__ = [
     'resize'
 ]
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from itertools import zip_longest
 
 import cv2
 import numpy as np
 
 from bipl import env
 
-from ._types import Tile
+from ._types import NumpyLike, Tile
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
@@ -45,19 +46,32 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
     return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
 
 
-def normalize_loc(loc: tuple[slice, ...] | slice,
-                  shape: tuple[int, ...]) -> tuple[slice, ...]:
+def normalize_loc(loc: Sequence[slice] | slice,
+                  shape: Sequence[int]) -> tuple[slice, ...]:
     """Ensures slices match shape and have non-none endpoints"""
     if isinstance(loc, slice):
         loc = loc,
-    loc += (slice(None), ) * max(len(shape) - len(loc), 0)
-    if len(loc) != len(shape):
-        raise ValueError(f'loc is too deep, got: {loc}')
-    return *(slice(
-        s.start if s.start is not None else 0,
+    ndim = len(shape)
+    if len(loc) > ndim:
+        raise ValueError(f'loc is too deep for {ndim}D, got: {loc}')
+    it = (slice(
+        s.start or 0,
         s.stop if s.stop is not None else axis_len,
         s.step if s.step is not None else 1,
-    ) for s, axis_len in zip(loc, shape)),
+    ) for s, axis_len in zip_longest(loc, shape, fillvalue=slice(None)))
+    return *it,
+
+
+def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
+    """Do `a[loc]`, but extend `a` if `loc` indices beyond `a.shape`"""
+    loc = normalize_loc(loc, a.shape)
+
+    pos_loc = *(slice(max(s.start, 0), s.stop) for s in loc),
+    a = a[pos_loc]
+
+    pad = [(pos.start - raw.start, pos.stop - pos.start - size)
+           for raw, pos, size in zip(loc, pos_loc, a.shape)]
+    return np.pad(a, pad) if np.any(pad) else a
 
 
 def resize(image: np.ndarray,

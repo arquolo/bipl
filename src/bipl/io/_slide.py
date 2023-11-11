@@ -3,7 +3,7 @@ __all__ = ['Slide']
 import os
 import warnings
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from math import ceil
 from pathlib import Path
@@ -86,13 +86,13 @@ class Slide:
     # TODO: add __enter__/__exit__/close to make memory management explicit
     # TODO: call .close in finalizer
     path: str
-    shape: tuple[int, ...]
-    downsamples: tuple[int, ...]
+    shape: Sequence[int]
+    downsamples: Sequence[int]
     mpp: float | None
     driver: str
     bbox: tuple = field(repr=False)
-    levels: tuple[ImageLevel, ...] = field(repr=False)
-    extras: dict[str, Image] = field(repr=False)
+    levels: Sequence[ImageLevel] = field(repr=False)
+    extras: Mapping[str, Image] = field(repr=False)
 
     @classmethod
     def from_file(
@@ -172,7 +172,7 @@ class Slide:
         return self.mpp
 
     @property
-    def pools(self) -> tuple[int, ...]:
+    def pools(self) -> Sequence[int]:
         warnings.warn(
             '"Slide.pools" is deprecated. Use "Slide.downsamples"',
             category=DeprecationWarning,

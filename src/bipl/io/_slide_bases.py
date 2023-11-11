@@ -113,9 +113,11 @@ class ImageLevel(Image):
         return np.ascontiguousarray(rgb)
 
     @final
-    def apply(self,
-              fn: Callable[[np.ndarray], np.ndarray],
-              pad: int = 0) -> '_LambdaLevel':
+    def apply(  # type: ignore[override]
+            self,
+            fn: Callable[[np.ndarray], np.ndarray],
+            pad: int = 0) -> '_LambdaLevel':
+        # _LambdaLevel is not subclass of _LambdaImage
         return _LambdaLevel(self.shape, self.mpp, self, fn, pad)
 
 

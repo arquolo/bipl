@@ -3,10 +3,12 @@ __all__ = ['BlendCropper', 'Cropper', 'Decimator', 'Reconstructor', 'Zipper']
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
+from math import ceil, floor
 
 import numpy as np
 
 from ._types import NumpyLike, Tile, Vec
+from ._util import padslice
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +39,10 @@ class Zipper:
 
     def __call__(self, tile: Tile) -> tuple[Vec, Vec, np.ndarray, np.ndarray]:
         v_scale = self.v_scale
-        loc = *(slice(round(o * v_scale), round((o + s) * v_scale))
+        loc = *(slice(floor(o * v_scale), ceil((o + s) * v_scale))
                 for o, s in zip(tile.vec, tile.data.shape[:2])),
-        return tile.idx, tile.vec, tile.data, self.v[loc]
+        r = padslice(self.v, *loc)
+        return tile.idx, tile.vec, tile.data, r
 
 
 class Reconstructor:
