@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int32,
                     c_int64, c_ubyte, c_void_p)
 from dataclasses import dataclass
+from functools import cached_property
 
 import cv2
 import numpy as np
@@ -51,22 +52,26 @@ OSD.openslide_read_region.argtypes = [
 ]
 
 # ICC profiles, available since OpenSlide 4.0
-_version = OSD.openslide_get_version()
-_has_icc = False
-if _version and Version(_version.decode()) >= Version('4.0'):
-    OSD.openslide_get_icc_profile_size.argtypes = [sptr]
-    OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
-        sptr, c_char_p
-    ]
-    OSD.openslide_get_icc_profile_size.restype \
-        = OSD.openslide_get_associated_image_icc_profile_size.restype \
-        = c_int64
+_HAVE_ICC = False
+_VERSION = None
 
-    OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
-    OSD.openslide_read_associated_image_icc_profile.argtypes = [
-        sptr, c_char_p, c_void_p
-    ]
-    _has_icc = True
+if _version_bytes := OSD.openslide_get_version():
+    _VERSION = Version(_version_bytes.decode())
+
+    if Version('4.0') <= _VERSION:
+        OSD.openslide_get_icc_profile_size.argtypes = [sptr]
+        OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
+            sptr, c_char_p
+        ]
+        OSD.openslide_get_icc_profile_size.restype \
+            = OSD.openslide_get_associated_image_icc_profile_size.restype \
+            = c_int64
+
+        OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
+        OSD.openslide_read_associated_image_icc_profile.argtypes = [
+            sptr, c_char_p, c_void_p
+        ]
+        _HAVE_ICC = True
 
 
 def _ntas_to_iter(null_terminated_array_of_strings) -> Iterator[bytes]:
@@ -123,8 +128,9 @@ class _Image(Image):
 
     @property
     def icc(self) -> Icc | None:
-        if not _has_icc:
-            return None
+        if not _HAVE_ICC:
+            raise NotImplementedError(
+                f'Openslide 4.x is required. Got {_VERSION}')
 
         size = OSD.openslide_get_associated_image_icc_profile_size(
             self.osd.ptr, self.name)
@@ -187,7 +193,6 @@ class Openslide(Driver):
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
         self.mpp = self._mpp()
-        self.icc = self._icc()
 
     def _mpp(self) -> float | None:
         mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
@@ -252,9 +257,11 @@ class Openslide(Driver):
                   for o, s in [(y0, h), (x0, w)])
         return slice(y0, y1), slice(x0, x1)
 
-    def _icc(self) -> Icc | None:
-        if not _has_icc:
-            return None
+    @cached_property
+    def icc(self) -> Icc | None:
+        if not _HAVE_ICC:
+            raise NotImplementedError(
+                f'Openslide 4.x is required. Got {_VERSION}')
 
         size = OSD.openslide_get_icc_profile_size(self.ptr)
         if not size:
