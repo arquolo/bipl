@@ -1,5 +1,8 @@
 # General
 
+- Global tile cache
+- `*.ref` files support. File `{filename}.{ext}.ref` is utf-8 txt file with path to real file
+
 ## openslide
 
 - Check if `libopenslide==4.0` present in Ubuntu repos
