@@ -290,6 +290,6 @@ class Slide:
              icc: bool = env.BIPL_ICC,
              clahe: bool = env.BIPL_CLAHE) -> 'Slide':
         """Open multi-scale image."""
-        if isinstance(anypath, Path):
-            anypath = Path(anypath).resolve().absolute().as_posix()
+        if isinstance(anypath, Path):  # Filesystem
+            anypath = anypath.resolve().absolute().as_posix()
         return _cached_open(anypath, icc=icc, clahe=clahe)
