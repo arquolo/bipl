@@ -7,8 +7,10 @@ from pydantic import BaseSettings, ByteSize, parse_obj_as
 
 class Env(BaseSettings):
     BIPL_DRIVERS: set[str] = {'gdal', 'tiff', 'openslide'}
+    # Max slides opened
     BIPL_CACHE: ByteSize = parse_obj_as(ByteSize, '10 MiB')
-    BIPL_TILE_CACHE: int = 100  # Max tiles cached per tiff slide
+    # Max tiles cached per tiff slide
+    BIPL_TILE_CACHE: ByteSize = parse_obj_as(ByteSize, '16 MiB')
 
     # area - downsample in single `resize(inter=area)` call (slow)
     # box2d - if downsample more than 2X, do gradual `resize(f=0.5)` first

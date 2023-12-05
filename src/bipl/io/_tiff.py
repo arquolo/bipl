@@ -9,6 +9,7 @@ __all__ = ['Tiff']
 
 import ctypes
 import sys
+import warnings
 import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ from typing import NamedTuple, Protocol, TypeVar
 import cv2
 import imagecodecs
 import numpy as np
+from glow import sizeof
 
 from bipl._env import env
 
@@ -191,26 +193,38 @@ class _Tags:
 # -------------------------- lazy decoding proxies ---------------------------
 class SupportsArray(Protocol):
     def __array__(self) -> np.ndarray:
+        ...
+
+    def __getitem__(self, key) -> np.ndarray:
+        ...
+
+
+class _ProxyArray:
+    @property
+    def numpy(self) -> np.ndarray:
         raise NotImplementedError
 
-
-class _CachedArray:
     def __array__(self) -> np.ndarray:
         return self.numpy
 
+    def __getitem__(self, key) -> np.ndarray:
+        return self.numpy[key]
+
+
+class _CachedArray(_ProxyArray):
     @cached_property
     def numpy(self) -> np.ndarray:
-        return self._impl()
+        return self._numpy_impl()
 
-    def _impl(self) -> np.ndarray:
+    def _numpy_impl(self) -> np.ndarray:
         raise NotImplementedError
 
 
 @dataclass
-class ImageArray(_CachedArray):
+class CompressedArray(_CachedArray):
     data: object
 
-    def _impl(self) -> np.ndarray:
+    def _numpy_impl(self) -> np.ndarray:
         return imagecodecs.imread(self.data)
 
 
@@ -220,7 +234,7 @@ class JpegArray(_CachedArray):
     jpt: bytes
     colorspace: int
 
-    def _impl(self) -> np.ndarray:
+    def _numpy_impl(self) -> np.ndarray:
         return imagecodecs.jpeg_decode(
             self.data, tables=self.jpt, colorspace=self.colorspace)
 
@@ -305,23 +319,48 @@ class _Level(ImageLevel, _BaseImage):
 
         if self.jpt:
             return JpegArray(data, self.jpt, self.color.space.value)
-        return ImageArray(data)
+        return CompressedArray(data)
 
     def _get_tile(self, y: int, x: int, ptr, cache_ok: bool) -> SupportsArray:
-        # Runs within lock
+        # NOTE: like any op using TIFF pointer, this must be called under lock.
+        # NOTE:
+        # Like OpenSlide does we use private cache for each slide
+        # with (level, y, x) key.
+        # But:
+        # - we store compressed data instead of pixel data to cache more tiles.
+        # - we cache opened slides to not waste time on re-opening
+        #   (that can lead to multiple caches existing at the same moment).
+        # NOTE:
+        # If tile becomes uncompressed we don't evict old compressed data.
+        #   (but we should, that CAN LEAD TO HIGH MEMORY USAGE).
+        # TODO: adjust cache size when tile is decoded.
+        # TODO: cache pixel data
+        tiff = self.tiff
         key = (self.index, y, x)
-        cache = self.tiff.cache
-        if (obj := cache.pop(key, None)) is not None:
-            # Cache hit, move to the end
-            cache[key] = obj
-        else:
-            # Cache miss
-            obj = self._read_tile(y, x, ptr)
+        cache = tiff.cache
 
-            if cache_ok and (cache_cap := env.BIPL_TILE_CACHE):
-                while len(cache) >= cache_cap:  # Evict least used item
-                    cache.pop(next(iter(cache)))
-                cache[key] = obj
+        # Cache hit, move to the end
+        if (entry := cache.pop(key, None)) is not None:
+            _, obj = cache[key] = entry
+            return obj
+
+        # Cache miss
+        obj = self._read_tile(y, x, ptr)
+
+        # Non-cacheable object or no cache at all
+        if not cache_ok or not (cache_cap := env.BIPL_TILE_CACHE):
+            return obj
+        if (size := sizeof(obj)) > cache_cap:
+            warnings.warn(
+                f'Rejecting overlarge cache entry of size {size} bytes',
+                stacklevel=3)
+            return obj
+
+        # Remove least recently used entries and put new one
+        tiff.cache_size += size
+        while tiff.cache_size > cache_cap:
+            tiff.cache_size -= cache.pop(next(iter(cache)))[0]
+        cache[key] = (size, obj)
         return obj
 
     def crop(self, *loc: slice) -> np.ndarray:
@@ -338,13 +377,21 @@ class _Level(ImageLevel, _BaseImage):
         bmin, bmax = box.T.clip(0, self.shape[:2])
 
         axes = *map(slice, bmin // tile, -(-bmax // tile)),
-        t_lo = np.mgrid[axes].reshape(2, -1).T * tile  # [N, 2]
-        if not t_lo.size:
+        grid = np.mgrid[axes]  # (2 ih iw)
+        if not grid.size:
             return out
 
+        t_lo = grid.reshape(2, -1).T * tile  # (N 2)
+
         # Cache only edges
-        # TODO: profile whether it gives any perf benefits
-        is_edge = (t_lo == t_lo.min(0)).any(1) | (t_lo == t_lo.max(0)).any(1)
+        # Increases cache usage for linear reads (such as in `ops.Mosaic`)
+        _, ih, iw = grid.shape
+        is_edge = np.zeros(t_lo.shape[0], np.bool_)
+        is_edge[:iw] = True  # first row
+        is_edge[-iw:] = True  # last row
+        is_edge[0::iw] = True  # first col
+        is_edge[iw - 1::iw] = True  # last col
+
         with self.tiff.ifd(self.index) as ptr:
             parts = [
                 self._get_tile(y, x, ptr, cache_ok)
@@ -358,8 +405,9 @@ class _Level(ImageLevel, _BaseImage):
         o_crops = (crops - dyx).transpose(0, 2, 1)
         t_crops = (crops - t_lo[:, None, :]).transpose(0, 2, 1)
         for part, (oy, ox), (ty, tx) in zip(parts, o_crops, t_crops):
-            patch = np.array(part, copy=False)
-            out[slice(*oy), slice(*ox)] = patch[slice(*ty), slice(*tx)]
+            # NOTE: This call does decoding and caching of pixel data
+            #       sequentially, but can be done in parallel.
+            out[slice(*oy), slice(*ox)] = part[slice(*ty), slice(*tx)]
 
         return out
 
@@ -377,7 +425,8 @@ class Tiff(Driver):
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
 
         self._lock = Lock()
-        self.cache: dict[tuple, SupportsArray] = {}
+        self.cache: dict[tuple, tuple[int, SupportsArray]] = {}
+        self.cache_size = 0
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'

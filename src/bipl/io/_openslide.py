@@ -3,21 +3,27 @@ Driver based on OpenSlide
 - slow
 - thread-safe
 - compatible with formats: tiff/tif/svs, ndpi/vms/vmu, scn, mrxs, svsslide, bif
+- relies on tile caching
+
+To adjust tile cache size use BIPL_TILE_CACHE environment variable.
 """
 # TODO: handle viewport offsets
 
 __all__ = ['Openslide']
 
+import atexit
 import weakref
 from collections.abc import Iterator
 from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int32,
-                    c_int64, c_ubyte, c_void_p)
+                    c_int64, c_ubyte, c_uint64, c_void_p)
 from dataclasses import dataclass
 from functools import cached_property
 
 import cv2
 import numpy as np
 from packaging.version import Version
+
+from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel
@@ -51,27 +57,47 @@ OSD.openslide_read_region.argtypes = [
     sptr, c_void_p, c_int64, c_int64, c_int32, c_int64, c_int64
 ]
 
-# ICC profiles, available since OpenSlide 4.0
-_HAVE_ICC = False
 _VERSION = None
-
+_OSD_4X = False
 if _version_bytes := OSD.openslide_get_version():
     _VERSION = Version(_version_bytes.decode())
+    _OSD_4X = Version('4.0') <= _VERSION
 
-    if Version('4.0') <= _VERSION:
-        OSD.openslide_get_icc_profile_size.argtypes = [sptr]
-        OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
-            sptr, c_char_p
-        ]
-        OSD.openslide_get_icc_profile_size.restype \
-            = OSD.openslide_get_associated_image_icc_profile_size.restype \
-            = c_int64
 
-        OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
-        OSD.openslide_read_associated_image_icc_profile.argtypes = [
-            sptr, c_char_p, c_void_p
-        ]
-        _HAVE_ICC = True
+def _init_4x_icc():
+    if not _OSD_4X:
+        return
+    OSD.openslide_get_icc_profile_size.argtypes = [sptr]
+    OSD.openslide_set_cache.argtypes = [sptr, sptr]
+
+    OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
+        sptr, c_char_p
+    ]
+    OSD.openslide_get_icc_profile_size.restype \
+        = OSD.openslide_get_associated_image_icc_profile_size.restype \
+        = c_int64
+
+    OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
+    OSD.openslide_read_associated_image_icc_profile.argtypes = [
+        sptr, c_char_p, c_void_p
+    ]
+
+
+def _init_4x_cache():
+    if not _OSD_4X:
+        return None
+    OSD.openslide_cache_create.argtypes = [c_uint64]
+    OSD.openslide_cache_create.restype = sptr
+    OSD.openslide_cache_release.argtypes = [sptr]
+    OSD.openslide_set_cache.argtypes = [sptr, sptr]
+
+    cache = OSD.openslide_cache_create(env.BIPL_TILE_CACHE)
+    atexit.register(OSD.openslide_cache_release, cache)
+    return cache
+
+
+_init_4x_icc()
+_CACHE = _init_4x_cache()
 
 
 def _ntas_to_iter(null_terminated_array_of_strings) -> Iterator[bytes]:
@@ -128,7 +154,7 @@ class _Image(Image):
 
     @property
     def icc(self) -> Icc | None:
-        if not _HAVE_ICC:
+        if not _OSD_4X:
             raise NotImplementedError(
                 f'Openslide 4.x is required. Got {_VERSION}')
 
@@ -184,6 +210,9 @@ class Openslide(Driver):
         if err := OSD.openslide_get_error(self.ptr):
             raise ValueError(err)
         weakref.finalize(self, OSD.openslide_close, self.ptr)
+
+        if _CACHE is not None:  # Use global tile cache for all slides
+            OSD.openslide_set_cache(self.ptr, _CACHE)
 
         meta = self._get_metadata()
         self.meta = unflatten(meta)
@@ -259,7 +288,7 @@ class Openslide(Driver):
 
     @cached_property
     def icc(self) -> Icc | None:
-        if not _HAVE_ICC:
+        if not _OSD_4X:
             raise NotImplementedError(
                 f'Openslide 4.x is required. Got {_VERSION}')
 
