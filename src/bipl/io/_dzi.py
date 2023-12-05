@@ -29,7 +29,7 @@ class Dzi(NamedTuple):
     def tile_at(self, slide: 'Slide', level: int,
                 iy_ix: tuple[int, ...]) -> np.ndarray:
         scale = 2 ** (level - max(slide.shape[:2]).bit_length())
-        tile_0 = self.tile * scale
+        tile_0 = self.tile / scale
         offset_0 = *(ip * tile_0 for ip in iy_ix),
         return slide.at(offset_0, self.tile, scale=scale)
 
