@@ -91,7 +91,7 @@ def resize(image: np.ndarray,
     interpolation = cv2.INTER_LINEAR
     if antialias:  # Downsampling
         match env.BIPL_DOWN:
-            case 'box2d':  # Pyramid, box filter. Fastest
+            case 'box':  # Pyramid, box filter. Fastest
                 for _ in range(int(f_max).bit_length() - 1):
                     image = cv2.resize(image, None, fx=0.5, fy=0.5)
 
