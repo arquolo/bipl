@@ -37,6 +37,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
@@ -66,7 +67,7 @@ dev-core = [
     "isort",
     "mypy~=1.7",
     "pytest~=7.4",
-    "ruff~=0.1.6",
+    "ruff~=0.1.7",
     "yapf~=0.40.2",
 ]
 dev = [
