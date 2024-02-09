@@ -25,20 +25,22 @@ from ._util import clahe, round2
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
 
-try:
-    from ._gdal import Gdal
-except ImportError:
-    if not os.getenv('_BIPL_GDAL_NO_WARN'):
-        msg = 'No GDAL is available. Please '
-        if os.name == 'nt':
-            msg += ('acquire it manually from '
-                    'https://github.com/cgohlke/geospatial-wheels/releases ')
-        else:
-            msg += ('install libgdal via your system package manager, '
-                    'and run "pip install gdal==`gdal-config --version`"')
-        warn(msg, stacklevel=1)
-        os.environ['_BIPL_GDAL_NO_WARN'] = '1'
-    Gdal = None  # type: ignore[assignment,misc]
+_gdal_warn = 'No GDAL is available. Please '
+if os.name == 'nt':
+    _gdal_warn += ('acquire it manually from '
+                   'https://github.com/cgohlke/geospatial-wheels/releases ')
+else:
+    _gdal_warn += ('install libgdal via your system package manager, '
+                   'and run "pip install gdal==`gdal-config --version`"')
+
+Gdal = None
+if 'gdal' in env.BIPL_DRIVERS:
+    try:
+        from ._gdal import Gdal
+    except ImportError:  # GDAL is not available, disable
+        warn(_gdal_warn, stacklevel=1)
+        os.environ['BIPL_DRIVERS'] = '[' + ','.join(
+            f'"{g}"' for g in env.BIPL_DRIVERS if g != 'gdal') + ']'
 
 _drv: type[Driver] | None
 for _drv, _regex in [  # LIFO, last driver takes priority
