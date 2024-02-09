@@ -4,7 +4,7 @@ from typing import NamedTuple, Protocol
 
 import numpy as np
 
-Vec = tuple[int, int]
+Vec = tuple[int, ...]
 
 
 class NumpyLike(Protocol):

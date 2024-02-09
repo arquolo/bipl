@@ -8,17 +8,18 @@ from math import ceil, floor
 import numpy as np
 
 from ._types import NumpyLike, Tile, Vec
-from ._util import padslice
+from ._util import crop_to, padslice
 
 
 @dataclass(frozen=True, slots=True)
 class Cropper:
+    """Crops tile to be exactly within [0 .. data.shape]"""
     shape: tuple[int, ...]
 
     def __call__(self, tile: Tile) -> Tile:
-        h, w = self.shape
-        iyx, (y, x), data = tile
-        return Tile(idx=iyx, vec=(y, x), data=data[:h - y, :w - x])
+        idx, vec, data = tile
+        vec, data = crop_to(vec, data, self.shape)
+        return Tile(idx=idx, vec=vec, data=data)
 
 
 @dataclass(frozen=True, slots=True)

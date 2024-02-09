@@ -1,6 +1,6 @@
 __all__ = [
-    'get_fusion', 'get_trapz', 'normalize_loc', 'probs_to_rgb_heatmap',
-    'resize'
+    'crop_to', 'get_fusion', 'get_trapz', 'normalize_loc',
+    'probs_to_rgb_heatmap', 'resize'
 ]
 
 from collections.abc import Iterable, Sequence
@@ -11,7 +11,7 @@ import numpy as np
 
 from bipl import env
 
-from ._types import NumpyLike, Tile
+from ._types import NumpyLike, Tile, Vec
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
@@ -48,7 +48,7 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
 
 def normalize_loc(loc: Sequence[slice] | slice,
                   shape: Sequence[int]) -> tuple[slice, ...]:
-    """Ensures slices match shape and have non-none endpoints"""
+    """Ensures slices match ndim and have not none endpoints"""
     if isinstance(loc, slice):
         loc = loc,
     ndim = len(shape)
@@ -63,15 +63,39 @@ def normalize_loc(loc: Sequence[slice] | slice,
 
 
 def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
-    """Do `a[loc]`, but extend `a` if `loc` indices beyond `a.shape`"""
+    """
+    Do `a[loc]`, but extend `a` (with 0s) if `loc` indices beyond `a.shape`.
+    """
     loc = normalize_loc(loc, a.shape)
 
-    pos_loc = *(slice(max(s.start, 0), s.stop) for s in loc),
+    pos_loc = *(slice(max(0, s.start), max(0, s.stop)) for s in loc),
     a = a[pos_loc]
 
     pad = [(pos.start - raw.start, pos.stop - pos.start - size)
            for raw, pos, size in zip(loc, pos_loc, a.shape)]
     return np.pad(a, pad) if np.any(pad) else a
+
+
+def crop_to(vec: Vec, a: NumpyLike,
+            shape: tuple[int, ...]) -> tuple[Vec, np.ndarray]:
+    """
+    Crop `a` to be completely within shape, i.e.
+    `0 <= vec[i] <= vec[i] + a.shape[i] <= shape[i]`.
+
+    Arguments:
+    - vec - top-left offset of `a` w.r.t. target.
+    - a - data to crop.
+    - shape - target shape to fit into.
+
+    Returns new offset & data.
+    """
+    assert len(a.shape) >= len(shape), 'Desired shape has more dims than `a`'
+    loc = *(slice(*np.clip([0, ts], -t0, s - t0))
+            for t0, ts, s in zip(vec, a.shape, shape)),
+    a = padslice(a, *loc)
+
+    vec = *(max(v, 0) for v in vec),
+    return vec, a
 
 
 def resize(image: np.ndarray,
@@ -107,6 +131,7 @@ def resize(image: np.ndarray,
 
 def get_fusion(tiles: Iterable[Tile],
                shape: tuple[int, ...] | None = None) -> np.ndarray | None:
+    """Stack tiles to large image. Tiles lying outside of bounds are cropped"""
     r: np.ndarray | None = None
 
     if shape is None:  # Collect all the tiles to compute destination size
@@ -120,17 +145,16 @@ def get_fusion(tiles: Iterable[Tile],
     elif len(shape) != 2:
         raise ValueError(f'shape should be 2-tuple, got {shape}')
 
-    for _, (y, x), tile in tiles:
-        if not tile.size:
+    for _, vec, tile in tiles:
+        (y, x), a = crop_to(vec, tile, shape)
+        if not a.size:
             continue
 
-        h, w, c = tile.shape
-        if r is None:  # First iteration, initilize
-            r = np.zeros((*shape, c), tile.dtype)
-
+        h, w, c = a.shape
+        if r is None:  # First iteration, initialize
+            r = np.zeros((*shape, c), a.dtype)
         if c != r.shape[2]:
             raise RuntimeError('tile channel counts changed during iteration')
-        v = r[y:, x:][:h, :w]  # View to destination
-        v[:] = tile[:v.shape[0], :v.shape[1]]  # Crop if needed
+        r[y:y + h, x:x + w] = a
 
     return r

@@ -11,6 +11,7 @@ from typing import TypeVar, cast
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
 from ._tile import BlendCropper, Cropper, Decimator, Reconstructor, Zipper
@@ -85,11 +86,27 @@ class Mosaic:
                 image: NumpyLike,
                 max_workers: int = 1) -> '_TiledArrayView':
         """Read tiles from input image"""
+        # Source shape
         shape = image.shape[:2]
-        ishape = *((s + self.tile - 1) // self.step for s in shape),
+
+        # Index
+        ih, iw = ishape = *((s + self.tile - 1) // self.step for s in shape),
         cells = np.ones(ishape, dtype=np.bool_)
 
-        return _TiledArrayView(self, shape, cells, image, max_workers)
+        # Align slide & cells centers
+        view = *(round(i * self.step + self.overlap) for i in ishape),
+        origin = *((s - v) // 2 for s, v in zip(shape, view)),
+
+        # All of (ih iw YX)
+        # First tile is [origin: origin + tile]
+        iyx = np.mgrid[:ih, :iw].transpose(1, 2, 0)
+        yx0 = self.step * iyx + origin
+        yx1 = self.tile + yx0
+        locs = np.stack([yx0, yx1], -1)  # (ih iw YX lo-hi)
+
+        # TODO: read row by row - process rectangular tiles
+        # TODO: merge consecutive tiles from single row
+        return _TiledArrayView(self, shape, cells, locs, image, max_workers)
 
 
 # --------------------------------- actions ----------------------------------
@@ -274,6 +291,7 @@ class _TiledArrayView(_View):
     Extracts tiles from array.
     Yields same-sized tiles with overlaps.
     """
+    locs: npt.NDArray[np.int64]  # (ih iw YX lo-hi)
     data: NumpyLike
     max_workers: int
 
@@ -283,6 +301,8 @@ class _TiledArrayView(_View):
         """
         Subset non-masked (i.e. non-zeros in mask) tiles for iteration.
         Mask size is "scale"-multiple of source image.
+
+        NOTE: `select(mask1).select(mask2)` is equal to `select(mask1 & mask2)`
         """
         if mask.ndim == 3:  # Strip extra dim
             mask = mask.squeeze(2)
@@ -297,54 +317,60 @@ class _TiledArrayView(_View):
             kernel = np.ones((3, 3), dtype='u1')
             mask = cv2.dilate(mask, kernel, iterations=half_tile)
 
-        ih, iw = self.ishape
+        # Align mask & cells centers
+        ih, iw = ishape = self.cells.shape
+        view = *(round(i * self.m.step * scale) for i in ishape),
+        loc = *(slice((s0 - s1) // 2, (s0 - s1) // 2 + s1)
+                for s0, s1 in zip(mask.shape, view)),
+        mask = padslice(mask, *loc)
+
         cells = cv2.resize(mask, (iw, ih), interpolation=cv2.INTER_AREA)
 
-        return dataclasses.replace(self, cells=cells.astype(bool))
+        return dataclasses.replace(self, cells=self.cells & cells.astype(bool))
 
-    def _get_tile(self, idx: Vec, vec: Vec, *loc: slice) -> Tile:
+    def _get_tile(self, idx: Vec, *loc: slice) -> Tile:
         """Do `data[loc]`. Result could be cropped."""
+        vec = *(s.start for s in loc),
         return Tile(idx=idx, vec=vec, data=self.data[loc])
 
-    def _get_tile_padded(self, idx: Vec, vec: Vec, *loc: slice) -> Tile:
+    def _get_tile_padded(self, idx: Vec, *loc: slice) -> Tile:
         """Do `data[loc]` padding data in necessary."""
+        vec = *(s.start for s in loc),
         return Tile(idx=idx, vec=vec, data=padslice(self.data, *loc))
 
-    def _get_locs(self) -> list[tuple[Vec, Vec, slice, slice]]:
-        """Precompute tile coordinates: index, offset & Y/X-slices"""
-        # TODO: center image to grid
-        ih, iw = self.ishape
+    def _ilocs(self,
+               locs: npt.NDArray[np.int64]) -> list[tuple[Vec, slice, slice]]:
+        """Precompute tile coordinates: index & Y/X-slices"""
+        idx = np.argwhere(self.cells).tolist()
+        boxes = locs[self.cells].tolist()
+        return [(tuple(i), slice(*ys), slice(*xs))
+                for i, (ys, xs) in zip(idx, boxes)]
 
-        # All of (ih iw 2), YX order
-        # First tile is [-overlap: step], as `step + overlap = tile`
-        iyx = np.mgrid[:ih, :iw].transpose(1, 2, 0)
-        yx0 = self.m.step * iyx - self.m.overlap
-        yx1 = self.m.step * (iyx + 1)
+    def _drop_overlaps(self,
+                       grid: npt.NDArray[np.int64]) -> npt.NDArray[np.int64]:
+        grid = grid.copy()  # (ih iw YX lo-hi)
 
-        # De-overlap if we don't know whether `data` has cheap slices
-        # Though we hope that data don't use index wrapping i.e. `index % size`
-        if not isinstance(self.data, np.ndarray):
-            # Cut top edge from all tiles having neighbor from above
-            yx0[1:, :][self.cells[:-1, :]][0] += self.m.overlap
+        # Cut top edge (y0) from tiles having neighbor from above (iy)
+        grid[1:, :, 0, 0][self.cells[:-1, :]] += self.m.overlap
 
-            # Cut left edge from all tiles having neighbor on the left
-            yx0[:, 1:][self.cells[:, :-1]][1] += self.m.overlap
-
-        # 3 x (ih iw 2) -> (n 2 3)
-        r = np.stack([iyx, yx0, yx1], axis=-1)[self.cells].tolist()
-        return [((iy, ix), (y0, x0), slice(y0, y1), slice(x0, x1))
-                for (iy, y0, y1), (ix, x0, x1) in r]
+        # Cut left edge (x0) from tiles having neighbor on the left (ix)
+        grid[:, 1:, 1, 0][self.cells[:, :-1]] += self.m.overlap
+        return grid
 
     def __iter__(self) -> Iterator[Tile]:
         """
         Yield complete tiles built from source image.
         Each tile will have size `(step + overlap)`
         """
-        locs = self._get_locs()
         if isinstance(self.data, np.ndarray):
-            return starmap(self._get_tile_padded, locs)
+            ilocs = self._ilocs(self.locs)
+            return starmap(self._get_tile_padded, ilocs)
 
-        parts = starmap_n(self._get_tile, locs, max_workers=self.max_workers)
+        # De-overlap if we don't know whether `data` has cheap slices
+        # Though we hope that data don't use index wrapping i.e. `index % size`
+        locs = self._drop_overlaps(self.locs)
+        ilocs = self._ilocs(locs)
+        parts = starmap_n(self._get_tile, ilocs, max_workers=self.max_workers)
         if not self.m.overlap:
             return iter(parts)
 
@@ -352,9 +378,10 @@ class _TiledArrayView(_View):
         return map(rcr, parts)
 
     def get_tile(self, idx: int) -> Tile:
-        # TODO: optimize
-        loc = self._get_locs()[idx]  # ! Does lots of stuff, O(n)
-        return self._get_tile_padded(*loc)
+        """Get full tile by its flattened index"""
+        i = *np.argwhere(self.cells)[idx].tolist(),
+        ys, xs = self.locs[i].tolist()
+        return self._get_tile_padded(i, slice(*ys), slice(*xs))
 
 
 @dataclass(frozen=True)
