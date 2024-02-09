@@ -47,15 +47,14 @@ class Zipper:
 
 class Reconstructor:
     """Joins non-overlapping parts to tiles"""
-    def __init__(self, overlap: int, step: int, cells: np.ndarray):
+    def __init__(self, overlap: int, cells: np.ndarray):
         assert overlap
         self.overlap = overlap
-        self.step = step
-        self.cells = np.pad(cells, [(0, 1), (0, 1)])
+        self.cells = np.pad(cells, ((0, 1), (0, 1)))
         self.row = defaultdict[int, np.ndarray]()
 
     def __call__(self, t: Tile) -> Tile:
-        (iy, ix), _, part = t
+        (iy, ix), (y, x), part = t
 
         # Lazy init, first part is always whole
         if self.row.default_factory is None:
@@ -63,7 +62,10 @@ class Reconstructor:
                                                part.dtype)
 
         if (tile := self.row.pop(ix, None)) is not None:
+            # Incoming tile is always bottom-right aligned to the full one
             tile[-part.shape[0]:, -part.shape[1]:] = part
+            y += part.shape[0] - tile.shape[0]
+            x += part.shape[1] - tile.shape[1]
         else:
             tile = part
 
@@ -73,11 +75,7 @@ class Reconstructor:
         if self.cells[iy + 1, ix]:
             self.row[ix][:self.overlap, :] = tile[-self.overlap:, :]
 
-        return Tile(
-            idx=(iy, ix),
-            vec=(iy * self.step - self.overlap, ix * self.step - self.overlap),
-            data=tile,
-        )
+        return Tile(idx=(iy, ix), vec=(y, x), data=tile)
 
 
 class BlendCropper:
