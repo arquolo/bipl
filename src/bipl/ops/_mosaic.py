@@ -1,13 +1,13 @@
 __all__ = ['Mosaic']
 
 import dataclasses
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain, starmap
 from math import ceil
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
 
 import cv2
 import numpy as np
@@ -117,11 +117,11 @@ _Self = TypeVar('_Self', bound='_BaseView')
 @dataclass(frozen=True)
 class _BaseView:
     m: Mosaic
-    shape: tuple[int, ...]
+    shape: Sequence[int]
     cells: np.ndarray
 
     @property
-    def ishape(self) -> tuple[int, ...]:
+    def ishape(self) -> Sequence[int]:
         return self.cells.shape
 
     def __len__(self) -> int:
@@ -173,12 +173,22 @@ class _BaseView:
         it = map(Cropper(self.shape), self)
         return _IterView(self.m, self.shape, self.cells, it)
 
-    def zip_with(self, view: np.ndarray, v_scale: float) -> '_ZipView':
-        """Extracts tiles from `view` simultaneously with tiles from self"""
-        if v_scale > 1:
-            raise ValueError('v_scale should be less than 1, '
-                             f'got: {v_scale}')
-        return _ZipView(self, view, v_scale)
+    def zip_with(
+        self,
+        view: NumpyLike,
+        v_scale: float,
+        interpolation: Literal[0, 1, 2, 3, 4] = 0,
+    ) -> '_ZipView':
+        """
+        For each tile read & resample matching region from `view`.
+        Similar to RoIAlign used in some detectors.
+
+        Interpolation is Nearest (0) by default, but Linear (1), Bicubic (2),
+        Area (3) & Lanczos-4 (4) are also supported (OpenCV codes).
+        """
+        if v_scale <= 0:
+            raise ValueError(f'v_scale should be positive, got: {v_scale}')
+        return _ZipView(self, view, v_scale, interpolation)
 
     def with_cm(self: _Self, ctx: AbstractContextManager) -> _Self:
         return cast(
@@ -192,12 +202,16 @@ class _ZipView:
     source: _BaseView
     view: NumpyLike
     v_scale: float
+    interpolation: int
 
     def __len__(self) -> int:
         return len(self.source)
 
     def __iter__(self) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
-        return map(Zipper(self.view, self.v_scale), self.source)
+        return map(
+            Zipper(self.view, self.v_scale, self.interpolation),
+            self.source,
+        )
 
 
 @dataclass(frozen=True)
@@ -389,6 +403,8 @@ class _BlendCropsView(_BaseView):
     """
     Applies weighted average over overlapping regions.
     Yields tiles without overlaps, so their size can differ.
+
+    NOTE: can output 0-sized tiles.
     """
     source: Iterable[Tile]
 

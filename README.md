@@ -10,8 +10,8 @@ import numpy as np
 from bipl import Slide
 
 slide = Slide.open('test.svs')
-shape: tuple[int, ...] = slide.shape  # Native shape
-pools: tuple[int, ...] = slide.pools  # List of pre-existing sub-resolution levels
+shape: Sequence[int] = slide.shape  # Native shape
+downsamples: Sequence[int] = slide.downsamples  # List of pre-existing sub-resolution levels
 
 # Get native miniature
 tmb: np.ndarray = slide.thumbnail()

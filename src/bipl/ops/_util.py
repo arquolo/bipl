@@ -77,7 +77,7 @@ def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
 
 
 def crop_to(vec: Vec, a: NumpyLike,
-            shape: tuple[int, ...]) -> tuple[Vec, np.ndarray]:
+            shape: Sequence[int]) -> tuple[Vec, np.ndarray]:
     """
     Crop `a` to be completely within shape, i.e.
     `0 <= vec[i] <= vec[i] + a.shape[i] <= shape[i]`.
@@ -99,7 +99,7 @@ def crop_to(vec: Vec, a: NumpyLike,
 
 
 def resize(image: np.ndarray,
-           hw: tuple[int, ...],
+           hw: Sequence[int],
            *,
            antialias: bool | None = None) -> np.ndarray:
     if image.shape[:2] == hw[:2]:
@@ -130,7 +130,7 @@ def resize(image: np.ndarray,
 
 
 def get_fusion(tiles: Iterable[Tile],
-               shape: tuple[int, ...] | None = None) -> np.ndarray | None:
+               shape: Sequence[int] | None = None) -> np.ndarray | None:
     """Stack tiles to large image. Tiles lying outside of bounds are cropped"""
     r: np.ndarray | None = None
 

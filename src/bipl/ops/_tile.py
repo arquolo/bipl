@@ -1,10 +1,12 @@
 __all__ = ['BlendCropper', 'Cropper', 'Decimator', 'Reconstructor', 'Zipper']
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
 from math import ceil, floor
 
+import cv2
 import numpy as np
 
 from ._types import NumpyLike, Tile, Vec
@@ -14,7 +16,7 @@ from ._util import crop_to, padslice
 @dataclass(frozen=True, slots=True)
 class Cropper:
     """Crops tile to be exactly within [0 .. data.shape]"""
-    shape: tuple[int, ...]
+    shape: Sequence[int]
 
     def __call__(self, tile: Tile) -> Tile:
         idx, vec, data = tile
@@ -37,12 +39,32 @@ class Decimator:
 class Zipper:
     v: NumpyLike
     v_scale: float
+    interpolation: int
 
     def __call__(self, tile: Tile) -> tuple[Vec, Vec, np.ndarray, np.ndarray]:
         v_scale = self.v_scale
-        loc = *(slice(floor(o * v_scale), ceil((o + s) * v_scale))
-                for o, s in zip(tile.vec, tile.data.shape[:2])),
+        th, tw = tshape = tile.data.shape[:2]
+        if not tile.data.size:
+            _, _, *extra_dims = self.v.shape
+            empty = np.empty((th, tw, *extra_dims), self.v.dtype)
+            return tile.idx, tile.vec, tile.data, empty
+
+        lo = *(v_scale * o for o in tile.vec),
+        hi = *(v_scale * (o + s) for o, s in zip(tile.vec, tshape)),
+
+        # Select approximate slice
+        loc = *(slice(floor(lo_), ceil(hi_)) for lo_, hi_ in zip(lo, hi)),
         r = padslice(self.v, *loc)
+
+        # Align pixel grids of incoming tile and existing view and resize
+        dy, dx = (lo_ - floor(lo_) + (v_scale - 1) / 2 for lo_ in lo)
+        r = cv2.warpAffine(
+            r,
+            np.array([[v_scale, 0, dx], [0, v_scale, dy]], 'f4'),
+            (tw, th),
+            flags=self.interpolation | cv2.WARP_INVERSE_MAP,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
         return tile.idx, tile.vec, tile.data, r
 
 

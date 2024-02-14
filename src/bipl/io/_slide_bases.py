@@ -1,7 +1,7 @@
 __all__ = ['Driver', 'Image', 'ImageLevel', 'REGISTRY']
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import ceil
 from typing import TYPE_CHECKING, final
@@ -21,7 +21,8 @@ _MIN_TILE = 256
 
 @dataclass(frozen=True)
 class Image:
-    shape: tuple[int, ...]
+    shape: Sequence[int]
+    dtype = np.dtype(np.uint8)
 
     @property
     def key(self) -> str | None:

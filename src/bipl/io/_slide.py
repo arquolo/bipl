@@ -77,8 +77,8 @@ class Slide:
     """Usage:
     ```
     slide = Slide.open('test.svs')
-    shape: tuple[int, ...] = slide.shape
-    scales: tuple[int, ...] = slide.scales
+    shape: Sequence[int] = slide.shape
+    downsamples: Sequence[int] = slide.downsamples
 
     # Get numpy.ndarray
     image: np.ndarray = slide[:2048, :2048]
@@ -95,6 +95,7 @@ class Slide:
     bbox: tuple = field(repr=False)
     levels: Sequence[ImageLevel] = field(repr=False)
     extras: Mapping[str, Image] = field(repr=False)
+    dtype = np.dtype(np.uint8)
 
     @classmethod
     def from_file(
