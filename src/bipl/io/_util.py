@@ -114,20 +114,21 @@ def gdal_parse_mpp(meta: Mapping) -> list[float]:
     props = _gdal_parse_description(meta)
 
     # TIFF tags
-    tiff_res_tags = [f'TIFFTAG_{a}RESOLUTION' for a in 'XY']
-    if res := [float(meta[trt]) for trt in tiff_res_tags if trt in meta]:
-        if meta.get('TIFFTAG_RESOLUTIONUNIT') == '3 (pixels/cm)':
-            return [10_000 / r for r in res]
-        raise NotImplementedError
-
-    # VIPS tags
-    res = [float(props[tag]) for tag in ('xres', 'yres') if tag in props]
+    res = [float(v) for a in 'XY' if (v := meta.get(f'TIFFTAG_{a}RESOLUTION'))]
     if res:
+        match meta.get('TIFFTAG_RESOLUTIONUNIT'):
+            case '2 (pixels/inch)':
+                return [25_400 / r for r in res]
+            case '3 (pixels/cm)':
+                return [10_000 / r for r in res]
+
+    # VIPS tags, always px/mm
+    if res := [float(v) for tag in ('xres', 'yres') if (v := props.get(tag))]:
         return [1_000 / r for r in res]
 
     # Openslide tags
     if osd := props.get('openslide'):
-        mpp = [float(osd[tag]) for tag in ('mpp-x', 'mpp-y') if tag in osd]
+        mpp = [float(v) for tag in ('mpp-x', 'mpp-y') if (v := osd.get(tag))]
         if mpp:
             return mpp
 
