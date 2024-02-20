@@ -41,14 +41,15 @@ classifiers = [
 ]
 
 dependencies = [
-    "glow~=0.13.0",
+    "glow~=0.13.5",
     "imagecodecs",
     "lxml",
     "numpy~=1.21",
     "opencv-python-headless~=4.0",
     "packaging",
     "pillow",
-    "pydantic~=1.2",
+    "pydantic~=2.0",
+    "pydantic_settings~=2.0",
     "tqdm",
 ]
 
@@ -59,15 +60,15 @@ gdal = [
     "gdal~=3.0",
 ]
 dev-core = [
-    "flake8~=6.1",
+    "flake8~=7.0",
     "flake8-pie",
     "flake8-pyi",
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
     "mypy~=1.7",
-    "pytest~=7.4",
-    "ruff~=0.1.7",
+    "pytest~=8.0",
+    "ruff~=0.2.2",
     "yapf~=0.40.2",
 ]
 dev = [
@@ -89,6 +90,10 @@ repository = "https://github.com"
 # Lint
 
 [tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
 select = [
     "A", "B", "C4", "C9", "D", "E", "F", "N", "PT", "Q0", "RET", "S", "SIM", "UP", "W",
     "BLE", "COM", "ICN", "INP", "PL", "RSE", "RUF",
@@ -100,14 +105,12 @@ ignore = [
     "COM812", "COM818", "PLR0913", "PLR2004", "PT011", "RET504", "TRY003", "SIM105",
 ]
 exclude = [".eggs", ".git", "__pycache__", "build", "dist"]
-line-length = 79
-target-version = "py310"
 unfixable = ["I001"]
 
-[tool.ruff.flake8-quotes]
+[tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 10
 
 [tool.flake8]

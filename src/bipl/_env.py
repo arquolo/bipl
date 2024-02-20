@@ -2,15 +2,18 @@ __all__ = ['env']
 
 from typing import Literal
 
-from pydantic import BaseSettings, ByteSize, parse_obj_as
+from pydantic import ByteSize, TypeAdapter
+from pydantic_settings import BaseSettings
+
+_bs_adapter = TypeAdapter(ByteSize)
 
 
 class Env(BaseSettings):
     BIPL_DRIVERS: set[str] = {'gdal', 'tiff', 'openslide'}
     # Max slides opened
-    BIPL_CACHE: ByteSize = parse_obj_as(ByteSize, '10 MiB')
+    BIPL_CACHE: ByteSize = _bs_adapter.validate_python('10 MiB')
     # Max tiles cached per tiff slide
-    BIPL_TILE_CACHE: ByteSize = parse_obj_as(ByteSize, '16 MiB')
+    BIPL_TILE_CACHE: ByteSize = _bs_adapter.validate_python('16 MiB')
 
     # `area`
     # - Downsample in single `cv2.resize(inter=AREA)` op.

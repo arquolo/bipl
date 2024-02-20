@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import numpy as np
 from osgeo import gdal, gdal_array
-from pydantic import AnyHttpUrl, ValidationError, parse_obj_as
+from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
 from ._slide_bases import Driver, ImageLevel
 from ._util import gdal_parse_mpp
@@ -20,14 +20,16 @@ gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
 gdal.SetConfigOption('GDAL_HTTP_MAX_RETRY', '3')  # max_retry=3
 gdal.UseExceptions()
 
+_url_adapter = TypeAdapter(AnyHttpUrl)
 
-def url_to_gdal(url: str, /, **query) -> str:
+
+def url_to_gdal(url: AnyHttpUrl | str, /, **query) -> str:
     if not query:
         return f'/vsicurl/{url}'
-    return '/vsicurl?{params}'.format(params=urlencode(query | {'url': url}))
+    return f'/vsicurl?{urlencode(query | {"url": str(url)})}'
 
 
-def url_to_safe_gdal(url: str, /) -> str:
+def url_to_safe_gdal(url: AnyHttpUrl | str, /) -> str:
     return url_to_gdal(url, list_dir='no', use_head='no', max_retry='3')
 
 
@@ -35,7 +37,7 @@ def _fix_if_url(s: str, /) -> str:
     if os.path.isfile(s) or s.startswith('/vsicurl'):
         return s
     try:
-        return url_to_safe_gdal(parse_obj_as(AnyHttpUrl, s))
+        return url_to_safe_gdal(_url_adapter.validate_python(s))
     except ValidationError:
         raise FileNotFoundError(f'Neither a fs path nor URL: {s!r}') from None
 
