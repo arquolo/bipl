@@ -30,7 +30,8 @@ if os.name == 'nt':
     _gdal_warn += ('acquire it manually from '
                    'https://github.com/cgohlke/geospatial-wheels/releases ')
 else:
-    _gdal_warn += ('ensure that you have libgdal in your system, '
+    _gdal_warn += ('ensure that you have "libgdal" in your system, '
+                   '"wheel" in your Python environment'
                    'and run "pip install gdal==`gdal-config --version`"')
 
 Gdal = None
