@@ -57,7 +57,7 @@ for _drv, _regex in [  # LIFO, last driver takes priority
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
 @memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
-def _cached_open(path: str, **kwargs) -> 'Slide':
+def _cached_open(path: str) -> 'Slide':
     last_exc = BaseException()
     matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)
                for tp in tps_)
@@ -65,7 +65,7 @@ def _cached_open(path: str, **kwargs) -> 'Slide':
     if tps:
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
-                return Slide.from_file(path, tp).tonemap(**kwargs)
+                return Slide.from_file(path, tp)
             except (ValueError, TypeError) as exc:
                 last_exc = exc
         raise last_exc from None
@@ -296,4 +296,4 @@ class Slide:
         """Open multi-scale image."""
         if isinstance(anypath, Path):  # Filesystem
             anypath = anypath.resolve().absolute().as_posix()
-        return _cached_open(anypath, icc=icc, clahe=clahe)
+        return _cached_open(anypath).tonemap(icc=icc, clahe=clahe)
