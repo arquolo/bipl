@@ -48,7 +48,7 @@ for _drv, _regex in [  # LIFO, last driver takes priority
     (Gdal, r'^.*\.(tif|tiff)$'),
     (Openslide, r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
     (Tiff, r'^.*\.(svs|tif|tiff)$'),
-    (Gdal, r'^(/vsicurl.*|(http|https)://.*)$'),
+    (Gdal, r'^(/vsicurl.*|(http|https|ftp)://.*)$'),
 ]:
     if _drv is not None and _drv.__name__.lower() in env.BIPL_DRIVERS:
         _drv.register(_regex)
