@@ -31,7 +31,8 @@ from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel
-from ._util import Icc, is_aperio, parse_aperio_description
+from ._util import (Icc, is_aperio, parse_aperio_description, parse_xml,
+                    unflatten)
 
 _T = TypeVar('_T')
 
@@ -463,9 +464,12 @@ class Tiff(Driver):
         else:
             if make == 'Hamamatsu':
                 raise ValueError('Hamamatsu is not yet supported via libtiff')
-            # TODO: put xml parser here (tiff)
-            head = [desc]
-            meta = {}
+            try:
+                head = []
+                meta = unflatten(parse_xml(desc))
+            except Exception:  # noqa: BLE001
+                head = [desc]
+                meta = {}
 
         return vendor, head, meta
 
