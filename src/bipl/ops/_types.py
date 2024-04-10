@@ -1,11 +1,14 @@
-__all__ = ['NumpyLike', 'Tile', 'Vec']
+__all__ = ['NDIndex', 'NumpyLike', 'Shape', 'Span', 'Tile', 'Vec']
 
 from collections.abc import Sequence
 from typing import NamedTuple, Protocol
 
 import numpy as np
 
-Vec = tuple[int, ...]
+NDIndex = tuple[int, ...]  # Index vector
+Shape: tuple[int, ...]  # N-dim shape
+Span = tuple[int, int]  # start/stop for `slice()`
+Vec = tuple[int, ...]  # N-dim radius-vector to some point
 
 
 class NumpyLike(Protocol):
@@ -22,6 +25,6 @@ class NumpyLike(Protocol):
 
 
 class Tile(NamedTuple):
-    idx: Vec
+    idx: NDIndex
     vec: Vec
     data: np.ndarray

@@ -171,7 +171,13 @@ class Icc:
 
 
 def round2(x: float) -> int:
-    """Round to power to 2"""
+    """Round to power of 2"""
     assert x > 0
     power = round(log2(x))
+    return 1 << power
+
+
+def floor2(x: float) -> int:
+    """Floor to power of 2"""
+    power = max(0, int(log2(x)))
     return 1 << power

@@ -1,7 +1,7 @@
 from ._mosaic import Mosaic
 from ._types import Tile
 from ._util import (get_fusion, get_trapz, normalize_loc, probs_to_rgb_heatmap,
-                    resize)
+                    rescale_crop, resize)
 
 __all__ = [
     'Mosaic',
@@ -10,5 +10,6 @@ __all__ = [
     'get_trapz',
     'normalize_loc',
     'probs_to_rgb_heatmap',
+    'rescale_crop',
     'resize',
 ]

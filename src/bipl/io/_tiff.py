@@ -19,6 +19,7 @@ from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
+from itertools import product
 from threading import Lock
 from typing import NamedTuple, Protocol, TypeVar
 
@@ -26,6 +27,7 @@ import cv2
 import imagecodecs
 import numpy as np
 from glow import sizeof
+from numpy.lib.stride_tricks import as_strided
 
 from bipl._env import env
 
@@ -293,9 +295,8 @@ class _Level(ImageLevel, _BaseImage):
     tile: tuple[int, ...]
     tile_sizes: np.ndarray = field(repr=False)
 
-    def _read_tile(self, y, x, ptr) -> SupportsArray:
-        offset = TIFF.TIFFComputeTile(ptr, x, y, 0, 0)
-        nbytes = int(self.tile_sizes[offset])
+    def _read_tile(self, iy, ix, ptr) -> SupportsArray:
+        nbytes = int(self.tile_sizes[iy, ix])
 
         if not nbytes:  # If nothing to read, don't read
             raise ValueError('File has corrupted tiles with zero size')
@@ -304,13 +305,16 @@ class _Level(ImageLevel, _BaseImage):
             # * then all tiles on levels >N are invalid, whether empty or not
             return np.broadcast_to(self.bg_color, self.tile)
 
+        offset = iy * self.tile_sizes.shape[1] + ix
+
         # if not self.compression.name.startswith('JPEG2000'):
         if self.compression not in {
                 _Compression.JPEG2000_RGB, _Compression.JPEG2000_YUV
         }:
             image = np.empty(self.tile, dtype='u1')
-            isok = TIFF.TIFFReadTile(ptr, c_void_p(image.ctypes.data), x, y, 0,
-                                     0)
+            isok = TIFF.TIFFReadEncodedTile(ptr, offset,
+                                            c_void_p(image.ctypes.data),
+                                            image.size)
             if isok == -1:
                 raise ValueError('TIFF tile read failed')
             return self.color.to_rgb(image)
@@ -322,7 +326,7 @@ class _Level(ImageLevel, _BaseImage):
             return JpegArray(data, self.jpt, self.color.space.value)
         return CompressedArray(data)
 
-    def _get_tile(self, y: int, x: int, ptr, cache_ok: bool) -> SupportsArray:
+    def _get_tile(self, iy: int, ix: int, ptr, skip: bool) -> SupportsArray:
         # NOTE: like any op using TIFF pointer, this must be called under lock.
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
@@ -337,7 +341,7 @@ class _Level(ImageLevel, _BaseImage):
         # TODO: adjust cache size when tile is decoded.
         # TODO: cache pixel data
         tiff = self.tiff
-        key = (self.index, y, x)
+        key = (self.index, iy, ix)
         cache = tiff.cache
 
         # Cache hit, move to the end
@@ -346,10 +350,10 @@ class _Level(ImageLevel, _BaseImage):
             return obj
 
         # Cache miss
-        obj = self._read_tile(y, x, ptr)
+        obj = self._read_tile(iy, ix, ptr)
 
         # Non-cacheable object or no cache at all
-        if not cache_ok or not (cache_cap := env.BIPL_TILE_CACHE):
+        if skip or not (cache_cap := env.BIPL_TILE_CACHE):
             return obj
         if (size := sizeof(obj)) > cache_cap:
             warnings.warn(
@@ -365,52 +369,75 @@ class _Level(ImageLevel, _BaseImage):
         return obj
 
     def crop(self, *loc: slice) -> np.ndarray:
-        box = np.array([(s.start, s.stop) for s in loc])
-
         *tile, spp = self.tile
-        dyx = box[:, 0]  # (2 lo-hi) -> (2)
-        out = np.ascontiguousarray(
-            np.broadcast_to(
-                self.bg_color,
-                np.r_[box[:, 1] - box[:, 0], spp],
-            ))
 
-        bmin, bmax = box.T.clip(0, self.shape[:2])
+        # (y/x lo/hi)
+        box = np.array([(s.start, s.stop) for s in loc])
+        out_shape = np.r_[box[:, 1] - box[:, 0], spp]
 
-        axes = *map(slice, bmin // tile, -(-bmax // tile)),
-        grid = np.mgrid[axes]  # (2 ih iw)
-        if not grid.size:
-            return out
+        if not out_shape.all():
+            return np.empty(out_shape, self.dtype)
 
-        t_lo = grid.reshape(2, -1).T * tile  # (N 2)
+        bmin, bmax = box.T.clip(0, self.shape[:2])  # (y/x)
+        if (bmin == bmax).any():  # Crop is outside of image
+            return np.broadcast_to(self.bg_color, out_shape)
+
+        iloc, masks, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
+            *map(self._make_index, box[:, 0], bmin, bmax, tile))
+
+        with self.tiff.ifd(self.index) as ptr:
+            parts = self._get_n_tiles(iloc, masks, ptr)
+
+        out = np.empty(out_shape, self.dtype)
+        out[:y0] = self.bg_color
+        out[y0:y1, :x0] = self.bg_color
+        out[y0:y1, x1:] = self.bg_color
+        out[y1:] = self.bg_color
+
+        self._fill_result(out, parts, o_crops, t_crops)
+
+        return out
+
+    def _make_index(
+        self, min_: int, vmin: int, vmax: int, tile: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        # (n + 1)
+        ids1 = np.arange(vmin // tile, 1 - (-vmax // tile))
+        n = ids1.size - 1
+        ts = ids1 * tile
+        vsep = ts.clip(vmin, vmax)
+
+        # (n lo/hi), source & target slices
+        u = vsep.itemsize
+        o_crops = as_strided(vsep - min_, (n, 2), (u, u))
+        t_crops = as_strided(vsep, (n, 2), (u, u)) - ts[:-1, None]
+
+        # (lo/hi), region of `out` to fill
+        o_span = o_crops[[0, -1], [0, 1]].tolist()
 
         # Cache only edges
         # Increases cache usage for linear reads (such as in `ops.Mosaic`)
-        _, ih, iw = grid.shape
-        is_edge = np.zeros(t_lo.shape[0], np.bool_)
-        is_edge[:iw] = True  # first row
-        is_edge[-iw:] = True  # last row
-        is_edge[0::iw] = True  # first col
-        is_edge[iw - 1::iw] = True  # last col
+        mask = np.zeros(n, np.bool_)
+        mask[1:-1] = True
 
-        with self.tiff.ifd(self.index) as ptr:
-            parts = [
-                self._get_tile(y, x, ptr, cache_ok)
-                for (y, x), cache_ok in zip(t_lo.tolist(), is_edge.tolist())
-            ]
+        return ids1[:-1], mask, t_crops, o_crops, o_span
 
-        # [N, lo-hi, yx]
-        crops = np.stack([t_lo, t_lo + tile], 1).clip(bmin, bmax)
+    def _get_n_tiles(self, iloc, masks, ptr):
+        parts = [
+            self._get_tile(y, x, ptr, skip_cache)
+            for (y, x), skip_cache in zip(
+                product(*(ids.tolist() for ids in iloc)),
+                np.bitwise_and.outer(*masks).ravel().tolist(),
+            )
+        ]
+        return parts
 
-        # [N, yx, lo-hi]
-        o_crops = (crops - dyx).transpose(0, 2, 1)
-        t_crops = (crops - t_lo[:, None, :]).transpose(0, 2, 1)
-        for part, (oy, ox), (ty, tx) in zip(parts, o_crops, t_crops):
+    def _fill_result(self, out, parts, o_crops, t_crops):
+        for part, (oy, ox), (ty, tx) in zip(parts, product(*o_crops),
+                                            product(*t_crops)):
             # NOTE: This call does decoding and caching of pixel data
             #       sequentially, but can be done in parallel.
             out[slice(*oy), slice(*ox)] = part[slice(*ty), slice(*tx)]
-
-        return out
 
 
 # FIXME: Get around slides from choked SVS encoder
@@ -424,7 +451,7 @@ class Tiff(Driver):
             raise ValueError(f'File {path} cannot be opened')
 
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
-
+        self._dir = 0
         self._lock = Lock()
         self.cache: dict[tuple, tuple[int, SupportsArray]] = {}
         self.cache_size = 0
@@ -435,11 +462,10 @@ class Tiff(Driver):
     @contextmanager
     def ifd(self, index: int) -> Iterator:
         with self._lock:
-            TIFF.TIFFSetDirectory(self._ptr, index)
-            try:
-                yield self._ptr
-            finally:
-                TIFF.TIFFFreeDirectory(self._ptr, index)
+            if self._dir != index:
+                self._dir = index
+                TIFF.TIFFSetDirectory(self._ptr, index)
+            yield self._ptr
 
     def __len__(self) -> int:
         return TIFF.TIFFNumberOfDirectories(self._ptr)
@@ -452,7 +478,7 @@ class Tiff(Driver):
                              byref(bg_color_ptr)):
             bg_hex = string_at(bg_color_ptr, 3)
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
-        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1')
+        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
     def _parse_description(self, desc: str,
                            make: str) -> tuple[str, list[str], dict[str, str]]:
@@ -524,8 +550,8 @@ class Tiff(Driver):
         tbc = np.empty([], 'u8')
         tbc_ptr = POINTER(c_uint64)()
         if TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(tbc_ptr)):
-            num_tiles = TIFF.TIFFNumberOfTiles(self._ptr)
-            tbc = np.ctypeslib.as_array(tbc_ptr, [num_tiles]).copy()
+            num_tiles = *(len(range(0, s, t)) for s, t in zip(shape, tile)),
+            tbc = np.ctypeslib.as_array(tbc_ptr, num_tiles).copy()
             # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
             if (tbc == 0).any():
                 raise ValueError('Found 0s in tile size table')

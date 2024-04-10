@@ -176,7 +176,7 @@ class _Level(ImageLevel):
     osd: 'Openslide'
 
     def crop(self, *loc: slice) -> np.ndarray:
-        box, valid_box, shape = self._unpack_loc(*loc)
+        box, valid_box, shape = self._unpack_2d_loc(*loc)
 
         (y0, y1), (x0, x1) = valid_box
         if y0 == y1 or x0 == x1:  # Patch is outside slide

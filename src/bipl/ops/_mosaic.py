@@ -15,7 +15,7 @@ import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
 from ._tile import BlendCropper, Cropper, Decimator, Reconstructor, Zipper
-from ._types import NumpyLike, Tile, Vec
+from ._types import NDIndex, NumpyLike, Tile, Vec
 from ._util import get_trapz, padslice
 
 # TODO: allow result of .map/.map_batched to have different tile and step
@@ -118,7 +118,7 @@ _Self = TypeVar('_Self', bound='_BaseView')
 class _BaseView:
     m: Mosaic
     shape: Sequence[int]
-    cells: np.ndarray
+    cells: npt.NDArray[np.bool_]
 
     @property
     def ishape(self) -> Sequence[int]:
@@ -151,7 +151,7 @@ class _BaseView:
         tiles = map_n(tile_fn, self, max_workers=max_workers)
         return cast(
             _Self,  # don't narrow type
-            _IterView(self.m, self.shape, self.cells, tiles),
+            _IterView(self.m, self.shape, self.cells, tiles, len(self)),
         )
 
     def pool(self: _Self, stride: int = 1) -> _Self:
@@ -166,12 +166,12 @@ class _BaseView:
         shape = *((s + stride - 1) // stride for s in self.shape),
         return cast(  # don't narrow type
             _Self,
-            _DecimatedView(m, shape, self.cells, stride, self),
+            _DecimatedView(m, shape, self.cells, stride, self, len(self)),
         )
 
     def crop(self) -> '_BaseView':
         it = map(Cropper(self.shape), self)
-        return _IterView(self.m, self.shape, self.cells, it)
+        return _IterView(self.m, self.shape, self.cells, it, len(self))
 
     def zip_with(
         self,
@@ -188,26 +188,29 @@ class _BaseView:
         """
         if v_scale <= 0:
             raise ValueError(f'v_scale should be positive, got: {v_scale}')
-        return _ZipView(self, view, v_scale, interpolation)
+        return _ZipView(self, len(self), view, v_scale, interpolation)
 
     def with_cm(self: _Self, ctx: AbstractContextManager) -> _Self:
         return cast(
             _Self,
-            _ScopedView(self.m, self.shape, self.cells, self, ctx),
+            _ScopedView(self.m, self.shape, self.cells, self, len(self), ctx),
         )
 
 
 @dataclass(frozen=True)
 class _ZipView:
-    source: _BaseView
+    source: Iterable[Tile]
+    total: int
     view: NumpyLike
     v_scale: float
     interpolation: int
 
     def __len__(self) -> int:
-        return len(self.source)
+        return self.total
 
-    def __iter__(self) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
+    def __iter__(
+        self,
+    ) -> Iterator[tuple[NDIndex, Vec, np.ndarray, np.ndarray]]:
         return map(
             Zipper(self.view, self.v_scale, self.interpolation),
             self.source,
@@ -233,7 +236,7 @@ class _View(_BaseView):
         batches = map_n(tile_fn, chunks, max_workers=max_workers)
         tiles = chain.from_iterable(batches)
 
-        return _IterView(self.m, self.shape, self.cells, tiles)
+        return _IterView(self.m, self.shape, self.cells, tiles, len(self))
 
     def transform(self, fn: Callable[[Iterable[Tile]],
                                      Iterable[Tile]]) -> '_View':
@@ -241,7 +244,7 @@ class _View(_BaseView):
         TODO: fill docs
         """
         tiles = fn(self)
-        return _IterView(self.m, self.shape, self.cells, tiles)
+        return _IterView(self.m, self.shape, self.cells, tiles, len(self))
 
     def reweight(self) -> '_View':
         """
@@ -269,6 +272,10 @@ class _View(_BaseView):
 @dataclass(frozen=True)
 class _IterView(_View):
     source: Iterable[Tile]
+    total: int
+
+    def __len__(self) -> int:
+        return self.total
 
     def __iter__(self) -> Iterator[Tile]:
         return iter(self.source)
@@ -277,7 +284,11 @@ class _IterView(_View):
 @dataclass(frozen=True)
 class _ScopedView(_BaseView):
     source: Iterable[Tile]
+    total: int
     _ctx: AbstractContextManager
+
+    def __len__(self) -> int:
+        return self.total
 
     def __iter__(self) -> Iterator[Tile]:
         """Iterator over tiles. Reentrant if nested context is reentrant"""
@@ -294,6 +305,10 @@ class _DecimatedView(_View):
     """
     stride: int
     source: Iterable[Tile]
+    total: int
+
+    def __len__(self) -> int:
+        return self.total
 
     def __iter__(self) -> Iterator[Tile]:
         return map(Decimator(self.stride), self.source)
@@ -342,23 +357,25 @@ class _TiledArrayView(_View):
 
         return dataclasses.replace(self, cells=self.cells & cells.astype(bool))
 
-    def _get_tile(self, idx: Vec, *loc: slice) -> Tile:
+    def _get_tile(self, idx: NDIndex, *loc: slice) -> Tile:
         """Do `data[loc]`. Result could be cropped."""
         vec = *(s.start for s in loc),
         return Tile(idx=idx, vec=vec, data=self.data[loc])
 
-    def _get_tile_padded(self, idx: Vec, *loc: slice) -> Tile:
+    def _get_tile_padded(self, idx: NDIndex, *loc: slice) -> Tile:
         """Do `data[loc]` padding data in necessary."""
         vec = *(s.start for s in loc),
         return Tile(idx=idx, vec=vec, data=padslice(self.data, *loc))
 
-    def _ilocs(self,
-               locs: npt.NDArray[np.int64]) -> list[tuple[Vec, slice, slice]]:
-        """Precompute tile coordinates: index & Y/X-slices"""
-        idx = np.argwhere(self.cells).tolist()
-        boxes = locs[self.cells].tolist()
-        return [(tuple(i), slice(*ys), slice(*xs))
-                for i, (ys, xs) in zip(idx, boxes)]
+    def _ilocs(
+        self,
+        locs: npt.NDArray[np.int64],
+    ) -> list[tuple[NDIndex, slice, slice]]:
+        """Precompute tile coordinates: 2D index & Y/X-slices"""
+        iys, ixs = self.cells.nonzero()
+        boxes = locs[iys, ixs].tolist()
+        return [(i, slice(*ys), slice(*xs))
+                for i, (ys, xs) in zip(zip(iys.tolist(), ixs.tolist()), boxes)]
 
     def _drop_overlaps(self,
                        grid: npt.NDArray[np.int64]) -> npt.NDArray[np.int64]:
@@ -393,7 +410,8 @@ class _TiledArrayView(_View):
 
     def get_tile(self, idx: int) -> Tile:
         """Get full tile by its flattened index"""
-        i = *np.argwhere(self.cells)[idx].tolist(),
+        iys, ixs = self.cells.nonzero()
+        i = int(iys[idx]), int(ixs[idx])
         ys, xs = self.locs[i].tolist()
         return self._get_tile_padded(i, slice(*ys), slice(*xs))
 

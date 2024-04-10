@@ -5,6 +5,7 @@ __all__ = [
 
 from collections.abc import Iterable, Sequence
 from itertools import zip_longest
+from math import ceil, floor
 
 import cv2
 import numpy as np
@@ -48,7 +49,7 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
 
 def normalize_loc(loc: Sequence[slice] | slice,
                   shape: Sequence[int]) -> tuple[slice, ...]:
-    """Ensures slices match ndim and have not none endpoints"""
+    """Ensures slices match ndim and have noo `None` endpoints"""
     if isinstance(loc, slice):
         loc = loc,
     ndim = len(shape)
@@ -68,12 +69,23 @@ def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
     """
     loc = normalize_loc(loc, a.shape)
 
-    pos_loc = *(slice(max(0, s.start), max(0, s.stop)) for s in loc),
-    a = a[pos_loc]
+    # No need to pad
+    if all(0 <= s.start <= s.stop <= size for s, size in zip(loc, a.shape)):
+        return a[loc]
 
-    pad = [(pos.start - raw.start, pos.stop - pos.start - size)
-           for raw, pos, size in zip(loc, pos_loc, a.shape)]
-    return np.pad(a, pad) if np.any(pad) else a
+    iloc = *(slice(np.clip(s.start, 0, size), np.clip(s.stop, 0, size))
+             for s, size in zip(loc, a.shape)),
+    rloc = *(slice(i.start - s.start, i.stop - s.start)
+             for s, i in zip(loc, iloc)),
+
+    r = np.empty([s.stop - s.start for s in loc], a.dtype)
+    pad = ()
+    for o in rloc:
+        r[*pad, :o.start] = 0
+        r[*pad, o.stop:] = 0
+        pad += o,
+    r[rloc] = a[iloc]
+    return r
 
 
 def crop_to(vec: Vec, a: NumpyLike,
@@ -158,3 +170,56 @@ def get_fusion(tiles: Iterable[Tile],
         r[y:y + h, x:x + w] = a
 
     return r
+
+
+def rescale_crop(a: NumpyLike,
+                 *loc: slice,
+                 scale: float = 1,
+                 interpolation: int = 0):
+    """
+    Rescale image, then crop with respect to subpixels.
+
+    Interpolation is Nearest (0) by default, but Linear (1), Bicubic (2),
+    Area (3) & Lanczos-4 (4) are also supported (OpenCV codes).
+
+    Effectively is same as:
+    ```
+    (y0, y1), (x0, x1) = ys * scale, xs * scale
+    h, w = ys[1] - ys[0], xs[1] - xs[0]
+    return cv2.resize(a[y0: y1, x0: x1], (w, h), interpolation=interpolation)
+    ```
+    """
+    assert 0 <= interpolation <= 4
+    if scale == 1:
+        return padslice(a, *loc)
+
+    box = np.array([[s.start, s.stop] for s in loc], 'i4')  # (y/x, start/stop)
+    h, w = (box[:, 1] - box[:, 0]).tolist()
+    if not h or not w:  # 0-size output
+        return np.empty((h, w, *a.shape[2:]), a.dtype)
+
+    lo_f, hi_f = np.multiply(box, scale, dtype='f4').T
+
+    # Extra margin to accomodate interpolation kernel
+    # 2x2 (0 extra) - nearest (0), bilinear (1), area (3)
+    # 4x4 (1 extra) - bicubic (2)
+    # 8x8 (3 extra) - lanczos4 (4)
+    eps = (0, 0, 1, 0, 3)[interpolation]
+
+    # Tight slice to have all necessary pixels
+    loc = tuple(
+        slice(*np.clip([floor(lo_) - eps, ceil(hi_) + eps], 0, size))
+        for lo_, hi_, size in zip(lo_f, hi_f, a.shape))
+    r = a[loc]
+    if not r.size:  # 0-size tight slice
+        return np.zeros((h, w, *a.shape[2:]), a.dtype)
+
+    # Resample image crop to destination grid
+    dy, dx = (lo_ - s.start + (scale - 1) / 2 for lo_, s in zip(lo_f, loc))
+    return cv2.warpAffine(
+        r,
+        np.array([[scale, 0, dx], [0, scale, dy]], 'f4'),
+        (w, h),
+        flags=interpolation | cv2.WARP_INVERSE_MAP,
+        borderMode=cv2.BORDER_CONSTANT,
+    )

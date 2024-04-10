@@ -219,23 +219,16 @@ class Slide:
         return lvl.rescale(d / downsample)
 
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
-        """Retrieves tile"""
-        # TODO: Ignore step, always redirect to self.levels[0].__getitem__
+        """Retrieve image patch from maximum resolution"""
         y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
-
-        try:
-            step, = {y_loc.step, x_loc.step}
-        except ValueError:
-            raise ValueError('all slices should have the same step') from None
-        if step <= 0:
+        if y_loc.step <= 0 or x_loc.step <= 0:
             raise ValueError('slice steps should be positive')
 
-        ds, level = self.best_level_for(step)
-        yx_loc = *(slice(s.start // ds, s.stop // ds) for s in (y_loc, x_loc)),
-        image = level.crop(*yx_loc)
-
-        dsize = *(ceil((s.stop - s.start) / step) for s in (y_loc, x_loc)),
-        return resize(image, dsize)[:, :, c_loc]
+        r = self.levels[0].crop(
+            slice(y_loc.start, y_loc.stop),
+            slice(x_loc.start, x_loc.stop),
+        )
+        return r[::y_loc.step, ::x_loc.step, c_loc]
 
     @overload
     def at(self,

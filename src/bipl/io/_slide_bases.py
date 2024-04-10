@@ -60,7 +60,7 @@ class ImageLevel(Image):
 
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
-        """Reads crop of LOD"""
+        """Retrieve sub-image as array from set location"""
         y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
         if not y_loc.step == x_loc.step == 1:
             raise ValueError('Y/X slice steps should be 1 for now, '
@@ -69,13 +69,13 @@ class ImageLevel(Image):
 
     @final
     def numpy(self) -> np.ndarray:
-        """Reads whole image in single op"""
+        """Retrieve whole image as array"""
         return self[:, :]
 
     def rescale(self, scale: float) -> 'ImageLevel':
         """
-        Resize image to `src.size * scale`.
-        I.e. downscale if `scale < 1`, upscale otherwise.
+        Rescale image to set `scale`. Downscale if `scale` is less then 1,
+        upscale otherwise.
         """
         if scale == 1:
             return self
@@ -95,14 +95,20 @@ class ImageLevel(Image):
         r_tile = max(_MIN_TILE // downsample, 1)
         return TiledProxyLevel((h, w, c), mpp, scale, base, downsample, r_tile)
 
-    def _unpack_loc(
+    def _unpack_2d_loc(
         self,
         *slices: slice,
     ) -> tuple[np.ndarray, np.ndarray, list[int]]:
+        # box[axis, {start, stop}]
         box = np.array([(s.start, s.stop) for s in slices])
-        valid_box = box.T.clip([0, 0], self.shape[:2]).T  # (2, lo-hi)
-        shape = (box[:, 1] - box[:, 0]).tolist()
-        return box, valid_box, shape
+
+        # Slices guarantied to be within image shape
+        h, w = self.shape[:2]
+        valid_box = box.clip(0, [[h], [w]])
+
+        # Full output shape
+        out_shape = (box @ [-1, 1]).tolist()
+        return box, valid_box, out_shape
 
     def _expand(self, rgb: np.ndarray, valid_box: np.ndarray, box: np.ndarray,
                 bg_color: np.ndarray) -> np.ndarray:
@@ -115,9 +121,10 @@ class ImageLevel(Image):
 
     @final
     def apply(  # type: ignore[override]
-            self,
-            fn: Callable[[np.ndarray], np.ndarray],
-            pad: int = 0) -> '_LambdaLevel':
+        self,
+        fn: Callable[[np.ndarray], np.ndarray],
+        pad: int = 0,
+    ) -> '_LambdaLevel':
         # _LambdaLevel is not subclass of _LambdaImage
         return _LambdaLevel(self.shape, self.mpp, self, fn, pad)
 
