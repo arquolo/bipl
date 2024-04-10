@@ -1,4 +1,4 @@
-__all__ = ['Mosaic']
+__all__ = ['Mosaic', 'Patches', 'Tiles']
 
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, starmap
 from math import ceil
-from typing import Literal, TypeVar, cast
+from typing import Literal
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
-from ._tile import BlendCropper, Cropper, Decimator, Reconstructor, Zipper
+from ._tile import BlendCropper, Decimator, Reconstructor, Stripper, Zipper
 from ._types import NDIndex, NumpyLike, Tile, Vec
 from ._util import get_trapz, padslice
 
@@ -82,9 +82,7 @@ class Mosaic:
     def get_kernel(self) -> np.ndarray:
         return get_trapz(self.step, self.overlap)
 
-    def iterate(self,
-                image: NumpyLike,
-                max_workers: int = 1) -> '_TiledArrayView':
+    def iterate(self, image: NumpyLike, max_workers: int = 1) -> '_ArrayTiles':
         """Read tiles from input image"""
         # Source shape
         shape = image.shape[:2]
@@ -104,74 +102,62 @@ class Mosaic:
         yx1 = self.tile + yx0
         locs = np.stack([yx0, yx1], -1)  # (ih iw YX lo-hi)
 
-        # TODO: read row by row - process rectangular tiles
-        # TODO: merge consecutive tiles from single row
-        return _TiledArrayView(self, shape, cells, locs, image, max_workers)
+        return _ArrayTiles(shape, self, cells, locs, image, max_workers)
 
 
-# --------------------------------- actions ----------------------------------
-
-_Self = TypeVar('_Self', bound='_BaseView')
+# ---------------------------------- pathes ----------------------------------
 
 
 @dataclass(frozen=True)
-class _BaseView:
-    m: Mosaic
+class Patches:
+    """Iterable of rectangular patches from non-uniform grid"""
     shape: Sequence[int]
-    cells: npt.NDArray[np.bool_]
-
-    @property
-    def ishape(self) -> Sequence[int]:
-        return self.cells.shape
 
     def __len__(self) -> int:
-        return int(self.cells.sum())
-
-    def report(self) -> dict[str, str]:
-        """Cells and area usage"""
-        used = int(self.cells.sum())
-        total = self.cells.size
-        coverage = (used / total) * (1 + self.m.overlap / self.m.step) ** 2
-        return {'cells': f'{used}/{total}', 'coverage': f'{coverage:.0%}'}
+        raise NotImplementedError
 
     def __iter__(self) -> Iterator[Tile]:
         raise NotImplementedError
 
-    def map(self: _Self,
+    def map(self,
             fn: Callable[[np.ndarray], np.ndarray],
             /,
-            max_workers: int = 0) -> _Self:
+            max_workers: int = 0) -> 'Patches':
         """
-        Applies function to each tile.
-        Note: change of tile shape besides channel count is forbidden.
-        Each tile is HWC-ordered ndarray.
+        Apply function to each patch.
+        Note: change of patch shape besides channel count is forbidden.
+        Each patch is HWC-ordered ndarray.
         Supports threading.
         """
-        tile_fn = partial(_apply, fn)
-        tiles = map_n(tile_fn, self, max_workers=max_workers)
-        return cast(
-            _Self,  # don't narrow type
-            _IterView(self.m, self.shape, self.cells, tiles, len(self)),
-        )
+        patch_fn = partial(_apply, fn)
+        patches = map_n(patch_fn, self, max_workers=max_workers)
+        return _IterPatches(self.shape, patches, len(self))
 
-    def pool(self: _Self, stride: int = 1) -> _Self:
-        """Resizes each tile to desired stride"""
+    def pool(self, stride: int = 1) -> 'Patches':
+        """Resize each patch to desired stride"""
         if stride == 1:
             return self
-        if self.m.step % stride != 0 or self.m.overlap % stride != 0:
-            raise ValueError('stride should be a divisor of '
-                             f'{self.m.step}, {self.m.overlap}. Got: {stride}')
-
-        m = Mosaic(self.m.step // stride, self.m.overlap // stride)
         shape = *((s + stride - 1) // stride for s in self.shape),
-        return cast(  # don't narrow type
-            _Self,
-            _DecimatedView(m, shape, self.cells, stride, self, len(self)),
-        )
+        return _IterPatches(shape, _Decimated(self, stride), len(self))
 
-    def crop(self) -> '_BaseView':
-        it = map(Cropper(self.shape), self)
-        return _IterView(self.m, self.shape, self.cells, it, len(self))
+    def transform(
+        self,
+        fn: Callable[[Iterable[Tile]], Iterable[Tile]],
+    ) -> 'Patches':
+        """
+        TODO: fill docs
+        """
+        patches = fn(self)
+        return _IterPatches(self.shape, patches, len(self))
+
+    def strip(self) -> 'Patches':
+        """Strip out-of-bounds regions. Produces non-square patches"""
+        it = map(Stripper(self.shape), self)
+        return _IterPatches(self.shape, it, len(self))
+
+    def crop(self) -> 'Patches':
+        # TODO: deprecate
+        return self.strip()
 
     def zip_with(
         self,
@@ -190,11 +176,9 @@ class _BaseView:
             raise ValueError(f'v_scale should be positive, got: {v_scale}')
         return _ZipView(self, len(self), view, v_scale, interpolation)
 
-    def with_cm(self: _Self, ctx: AbstractContextManager) -> _Self:
-        return cast(
-            _Self,
-            _ScopedView(self.m, self.shape, self.cells, self, len(self), ctx),
-        )
+    def with_(self, ctx: AbstractContextManager) -> 'Patches':
+        """Iterate with context. Reentrant if nested context is reentrant"""
+        return _IterPatches(self.shape, _Scoped(self, ctx), len(self))
 
 
 @dataclass(frozen=True)
@@ -218,59 +202,7 @@ class _ZipView:
 
 
 @dataclass(frozen=True)
-class _View(_BaseView):
-    def map_batched(self,
-                    fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
-                    /,
-                    batch_size: int = 1,
-                    max_workers: int = 0) -> '_View':
-        """
-        Applies function to batches of tiles.
-        Note: change of tile shape besides channel count is forbidden.
-        Each tile is HWC-ordered ndarray.
-        Supports threading.
-        """
-        tile_fn = partial(_apply_batched, fn)
-
-        chunks = chunked(self, batch_size)
-        batches = map_n(tile_fn, chunks, max_workers=max_workers)
-        tiles = chain.from_iterable(batches)
-
-        return _IterView(self.m, self.shape, self.cells, tiles, len(self))
-
-    def transform(self, fn: Callable[[Iterable[Tile]],
-                                     Iterable[Tile]]) -> '_View':
-        """
-        TODO: fill docs
-        """
-        tiles = fn(self)
-        return _IterView(self.m, self.shape, self.cells, tiles, len(self))
-
-    def reweight(self) -> '_View':
-        """
-        Applies weight to tile edges to prepare them for summation
-        if overlap exists.
-        Note: no need to call this method if you have already applied it.
-        """
-        if not self.m.overlap:  # No need
-            return self
-
-        weight = self.m.get_kernel()
-        tile_fn = partial(_reweight, weight)
-        return self.map(tile_fn)
-
-    def merge(self) -> _BaseView:
-        """
-        Removes overlapping regions from all the tiles if any.
-        Tiles should be reweighted if overlap exists.
-        """
-        if self.m.overlap:
-            return _BlendCropsView(self.m, self.shape, self.cells, self)
-        return self
-
-
-@dataclass(frozen=True)
-class _IterView(_View):
+class _IterPatches(Patches):
     source: Iterable[Tile]
     total: int
 
@@ -281,52 +213,156 @@ class _IterView(_View):
         return iter(self.source)
 
 
+# ---------------------------------- tiles -----------------------------------
+
+
 @dataclass(frozen=True)
-class _ScopedView(_BaseView):
-    source: Iterable[Tile]
-    total: int
-    _ctx: AbstractContextManager
+class Tiles(Patches):
+    """Iterable of (overlapping) square tiles from uniform grid"""
+    m: Mosaic
+    cells: npt.NDArray[np.bool_]
+
+    @property
+    def ishape(self) -> Sequence[int]:
+        return self.cells.shape
 
     def __len__(self) -> int:
-        return self.total
+        return int(self.cells.sum())
+
+    def report(self) -> dict[str, str]:
+        """Cells and area usage"""
+        used = int(self.cells.sum())
+        total = self.cells.size
+        coverage = (used / total) * (1 + self.m.overlap / self.m.step) ** 2
+        return {'cells': f'{used}/{total}', 'coverage': f'{coverage:.0%}'}
+
+    def map(self,
+            fn: Callable[[np.ndarray], np.ndarray],
+            /,
+            max_workers: int = 0) -> 'Tiles':
+        """
+        Apply function to each tile.
+        Note: change of tile shape besides channel count is forbidden.
+        Each tile is HWC-ordered ndarray.
+        Supports threading.
+        """
+        tile_fn = partial(_apply, fn)
+        tiles = map_n(tile_fn, self, max_workers=max_workers)
+        return _IterTiles(self.shape, self.m, self.cells, tiles)
+
+    def map_batched(self,
+                    fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
+                    /,
+                    batch_size: int = 1,
+                    max_workers: int = 0) -> 'Tiles':
+        """
+        Apply function to batches of tiles.
+        Note: change of tile shape besides channel count is forbidden.
+        Each tile is HWC-ordered ndarray.
+        Supports threading.
+        """
+        tile_fn = partial(_apply_batched, fn)
+
+        chunks = chunked(self, batch_size)
+        batches = map_n(tile_fn, chunks, max_workers=max_workers)
+        tiles = chain.from_iterable(batches)
+
+        return _IterTiles(self.shape, self.m, self.cells, tiles)
+
+    def pool(self, stride: int = 1) -> 'Tiles':
+        """Resize each tile to desired stride"""
+        if stride == 1:
+            return self
+        if self.m.step % stride != 0 or self.m.overlap % stride != 0:
+            raise ValueError('stride should be a divisor of '
+                             f'{self.m.step}, {self.m.overlap}. Got: {stride}')
+
+        m = Mosaic(self.m.step // stride, self.m.overlap // stride)
+        shape = *((s + stride - 1) // stride for s in self.shape),
+        return _IterTiles(shape, m, self.cells, _Decimated(self, stride))
+
+    def with_(self, ctx: AbstractContextManager) -> 'Tiles':
+        """Iterate with context. Reentrant if nested context is reentrant"""
+        return _IterTiles(self.shape, self.m, self.cells, _Scoped(self, ctx))
+
+    def reweight(self) -> 'Tiles':
+        """
+        Apply weight to tile edges to prepare them for summation
+        if overlap exists.
+        Note: no need to call this method if you have already applied it.
+        """
+        if not self.m.overlap:  # No-op
+            return self
+        weight = self.m.get_kernel()
+        tile_fn = partial(_reweight, weight)
+        return self.map(tile_fn)
+
+    def merge(self) -> Patches:
+        """
+        Remove overlapping regions from all the tiles if any.
+        Tiles should be reweighted if overlap exists.
+        """
+        if not self.m.overlap:  # No-op
+            return self
+        bcr = BlendCropper(self.cells, self.m.overlap, self.m.step)
+        return _IterPatches(self.shape, _Merged(self, bcr), bcr.size)
+
+
+@dataclass(frozen=True)
+class _IterTiles(Tiles):
+    source: Iterable[Tile]
 
     def __iter__(self) -> Iterator[Tile]:
-        """Iterator over tiles. Reentrant if nested context is reentrant"""
+        return iter(self.source)
+
+
+@dataclass(frozen=True, slots=True)
+class _Scoped:
+    source: Iterable[Tile]
+    _ctx: AbstractContextManager
+
+    def __iter__(self) -> Iterator[Tile]:
         with self._ctx:
             yield from self.source
 
 
-@dataclass(frozen=True)
-class _DecimatedView(_View):
+@dataclass(frozen=True, slots=True)
+class _Decimated:
     """
     Decimates tiles.
     Doesn't change size uniformity.
     Yields decimated views of original tiles.
     """
-    stride: int
     source: Iterable[Tile]
-    total: int
-
-    def __len__(self) -> int:
-        return self.total
+    stride: int
 
     def __iter__(self) -> Iterator[Tile]:
         return map(Decimator(self.stride), self.source)
 
 
+@dataclass(frozen=True, slots=True)
+class _Merged:
+    """
+    Sums overlapping regions.
+    Returns non-uniform patches without overlaps.
+    """
+    source: Iterable[Tile]
+    bcr: BlendCropper
+
+    def __iter__(self) -> Iterator[Tile]:
+        return self.bcr(self.source)
+
+
 @dataclass(frozen=True)
-class _TiledArrayView(_View):
-    """
-    Extracts tiles from array.
-    Yields same-sized tiles with overlaps.
-    """
+class _ArrayTiles(Tiles):
+    """Extracts square tiles from array with overlaps."""
     locs: npt.NDArray[np.int64]  # (ih iw YX lo-hi)
     data: NumpyLike
     max_workers: int
 
     def select(self,
                mask: np.ndarray,
-               scale: float | None = None) -> '_TiledArrayView':
+               scale: float | None = None) -> '_ArrayTiles':
         """
         Subset non-masked (i.e. non-zeros in mask) tiles for iteration.
         Mask size is "scale"-multiple of source image.
@@ -414,19 +450,3 @@ class _TiledArrayView(_View):
         i = int(iys[idx]), int(ixs[idx])
         ys, xs = self.locs[i].tolist()
         return self._get_tile_padded(i, slice(*ys), slice(*xs))
-
-
-@dataclass(frozen=True)
-class _BlendCropsView(_BaseView):
-    """
-    Applies weighted average over overlapping regions.
-    Yields tiles without overlaps, so their size can differ.
-
-    NOTE: can output 0-sized tiles.
-    """
-    source: Iterable[Tile]
-
-    def __iter__(self) -> Iterator[Tile]:
-        assert self.m.overlap
-        bcr = BlendCropper(self.m.step, self.m.overlap, self.cells)
-        return map(bcr, self.source)

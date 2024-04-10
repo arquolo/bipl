@@ -1,19 +1,22 @@
-__all__ = ['BlendCropper', 'Cropper', 'Decimator', 'Reconstructor', 'Zipper']
+__all__ = ['BlendCropper', 'Decimator', 'Reconstructor', 'Stripper', 'Zipper']
 
-from collections import defaultdict
-from collections.abc import Sequence
+from collections import defaultdict, deque
+from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
+import numpy.typing as npt
 
 from ._types import NDIndex, NumpyLike, Tile, Vec
 from ._util import crop_to, rescale_crop
 
+_Op = Callable[[Tile], tuple[Tile, ...]]
+
 
 @dataclass(frozen=True, slots=True)
-class Cropper:
-    """Crops tile to be exactly within [0 .. data.shape]"""
+class Stripper:
+    """Strips regions outside of `data.shape`. Produces non-square patches"""
     shape: Sequence[int]
 
     def __call__(self, tile: Tile) -> Tile:
@@ -57,7 +60,7 @@ class Zipper:
 
 
 class Reconstructor:
-    """Joins non-overlapping parts to tiles"""
+    """Rebuilds full tiles from parts"""
     def __init__(self, overlap: int, cells: npt.NDArray[np.bool_]):
         assert overlap
         self.overlap = overlap
@@ -66,80 +69,194 @@ class Reconstructor:
 
     def __call__(self, t: Tile) -> Tile:
         (iy, ix), (y, x), part = t
+        ov = self.overlap
 
         # Lazy init, first part is always whole
         if self.row.default_factory is None:
-            self.row.default_factory = partial(np.zeros, part.shape,
+            self.row.default_factory = partial(np.empty, part.shape,
                                                part.dtype)
 
         if (tile := self.row.pop(ix, None)) is not None:
             # Incoming tile is always bottom-right aligned to the full one
-            tile[-part.shape[0]:, -part.shape[1]:] = part
-            y += part.shape[0] - tile.shape[0]
-            x += part.shape[1] - tile.shape[1]
+            dy, dx = (tile.shape[a] - part.shape[a] for a in (0, 1))
+            tile[dy:, dx:] = part
+            y -= dy
+            x -= dx
         else:
             tile = part
 
-        # Cache right & bottom edges for adjacent tiles
+        # Use current right edge as new left edge
         if self.cells[iy, ix + 1]:
-            self.row[ix + 1][:, :self.overlap] = tile[:, -self.overlap:]
+            self.row[ix + 1][:, :ov] = tile[:, -ov:]
+
+        # Use current bottom edge as new top edge
         if self.cells[iy + 1, ix]:
-            self.row[ix][:self.overlap, :] = tile[-self.overlap:, :]
+            if ix and self.cells[iy + 1, ix - 1]:  # Don't write angle twice
+                self.row[ix][:ov, ov:] = tile[-ov:, ov:]
+            else:
+                self.row[ix][:ov] = tile[-ov:]
 
         return Tile(idx=(iy, ix), vec=(y, x), data=tile)
 
 
 class BlendCropper:
     """
-    Applies blends edges of incoming tiles.
-    Returns crops excluding overlaps. Crop size depends on its surrounding.
+    Blends edges/angles of overlapping tiles.
+    Returns non-overlapping parts of tiles.
+
+    All parts form non-uniform rectangular grid
+    (i.e. all parts with same `iy` have same `shape[0]` and same `y`).
+
+    NOTE: Each tile can make up to 4 parts.
     """
-    def __init__(self, step: int, overlap: int, cells: np.ndarray):
-        self.step = step
+    __slots__ = ('overlap', 'iys', 'ixs', 'call', 'cells', 'size')
+
+    iys: list[int]
+    ixs: list[int]
+    cells: npt.NDArray[np.bool_]
+    size: int
+
+    def __init__(self, cells: npt.NDArray[np.bool_], overlap: int, step: int):
+        if overlap > step:
+            raise ValueError('Tile overlap must be less or equal to tile step')
         self.overlap = overlap
-        self.cells = np.pad(cells, [(0, 1), (0, 1)])
-        self.row: dict[int, np.ndarray] = {}
-        self.carry: np.ndarray | None = None
 
-    def __call__(self, obj: Tile) -> Tile:
-        """
-        Blends edges of overlapping tiles and returns non-overlapping parts
-        """
-        (iy, ix), (y, x), tile = obj
-        overlap = self.overlap
-        step = self.step
+        ih, iw = cells.shape
+        # -> (2h+1 2w+1)
+        cells = cells.repeat(2, 0).repeat(2, 1)
+        cells = np.pad(cells, (0, 1))
+        # -> (2h 2w)
+        cells = np.lib.stride_tricks.sliding_window_view(cells, (2, 2))
+        cells = np.bitwise_and.reduce(cells, axis=(-2, -1))
+        # -> (h w 4) [this, next, next row, next diag]
+        cells = cells.reshape(ih, 2, iw, 2).transpose(0, 2, 1, 3)
+        cells = cells.reshape(ih, iw, 4)
 
-        if iy and self.cells[iy - 1, ix]:  # TOP exists
-            top = self.row.pop(ix)
-            tile[:overlap, step - top.shape[1]:step] += top
+        iys, ixs = cells[:, :, 0].nonzero()
+        self.iys, self.ixs = iys.tolist(), ixs.tolist()
+
+        if overlap < step:
+            self.call = self._3x3
+            self.cells = cells[iys, ixs, 1:]  # (n 3)
+            self.size = self.cells.sum() + self.cells.shape[0]
         else:
-            tile = tile[overlap:]  # cut TOP
-            y += overlap
+            self.call = self._2x2
+            self.cells = cells[iys, ixs, 3]  # (n)
+            self.size = self.cells.sum()
 
-        if ix and self.cells[iy, ix - 1]:  # LEFT exists
-            left = self.carry
-            assert left is not None
-            if self.cells[iy + 1, [ix - 1, ix]].all():
-                tile[-left.shape[0]:, :overlap] += left
-            else:  # cut BOTTOM-LEFT
-                tile[-left.shape[0] - overlap:-overlap, :overlap] += left
-        else:
-            tile = tile[:, overlap:]  # cut LEFT
-            x += overlap
+    def __call__(self, src: Iterable[Tile]) -> Iterator[Tile]:
+        """Merge and split tiles."""
+        return self.call(src)
 
-        tile, right = np.split(tile, [-overlap], axis=1)
-        if self.cells[iy, ix + 1]:  # RIGHT exists
-            if not (iy and self.cells[iy - 1, [ix, ix + 1]].all()):
-                right = right[-step:]  # cut TOP-RIGHT
-            if not self.cells[iy + 1, [ix, ix + 1]].all():
-                right = right[:-overlap]  # cut BOTTOM-RIGHT
-            self.carry = right
+    def _2x2(self, src: Iterable[Tile]) -> Iterator[Tile]:
+        ops = defaultdict[NDIndex, list[_Op]](list)
+        ov = self.overlap
 
-        tile, bottom = np.split(tile, [-overlap])
-        if self.cells[iy + 1, ix]:  # BOTTOM exists
-            if not (ix and self.cells[[iy, iy + 1], ix - 1].all()):
-                # cut BOTTOM-LEFT
-                bottom = bottom[:, -(step - overlap):]
-            self.row[ix] = bottom
+        for iy, ix, c11, tile in zip(
+                self.iys, self.ixs, self.cells, src, strict=True):
+            assert tile.idx == (iy, ix), f'Unexpected tile index: {tile.idx}'
+            idx = tile.idx
 
-        return Tile(idx=(iy, ix), vec=(y, x), data=tile)
+            for op in ops.pop(idx, []):  # full top & left (3)
+                yield from op(tile)
+
+            if c11:  # bottom-right (1)
+                u = _angle(ov, idx, tile.data)
+                next(u)
+                ops[iy, ix + 1].append(u.send)
+                ops[iy + 1, ix].append(u.send)
+                ops[iy + 1, ix + 1].append(partial(_final_send, u))
+
+    def _3x3(self, src: Iterable[Tile]) -> Iterator[Tile]:
+        last_iy = -1
+        buf = deque[Tile | None]()
+        ops = defaultdict[NDIndex, list[_Op]](list)
+        ov = self.overlap
+
+        for iy, ix, (c01, c10, c11), tile in zip(
+                self.iys, self.ixs, self.cells, src, strict=True):
+            idx = tile.idx
+            assert idx == (iy, ix), f'Unexpected tile index: {idx}'
+
+            if iy != last_iy:  # Start/end row
+                buf.append(None)
+                yield from iter(buf.popleft, None)
+                last_iy = iy
+
+            for op in ops.pop(idx, []):  # full top & left (5)
+                yield from op(tile)
+
+            buf.append(_center(ov, tile))  # center (1)
+
+            if c01:  # right (1)
+                ops[iy, ix + 1].append(partial(_vert_edge, ov, buf, tile.data))
+
+            if c10:  # bottom (1)
+                ops[iy + 1, ix].append(partial(_horz_edge, ov, tile.data))
+
+            if c11:  # bottom-right (1)
+                u = _angle(ov, (iy * 2 + 1, ix * 2 + 1), tile.data)
+                next(u)
+                ops[iy, ix + 1].append(u.send)
+                ops[iy + 1, ix].append(u.send)
+                ops[iy + 1, ix + 1].append(partial(_final_send, u))
+
+        buf.append(None)
+        yield from iter(buf.popleft, None)  # End row
+
+
+def _center(pad: int, tile: Tile) -> Tile:
+    # [- - -]
+    # [- R -]
+    # [- - -]
+    (ix, iy), (y, x), data = tile
+    return Tile((2 * ix, 2 * iy), (y + pad, x + pad), data[pad:-pad, pad:-pad])
+
+
+def _vert_edge(pad: int, buf: deque[Tile | None], left: np.ndarray,
+               tile: Tile) -> tuple[()]:
+    # [- - -]    [- - -]
+    # [- - X] -> [R - -]
+    # [- - -]    [- - -]
+    (iy, ix), (y, x), right = tile
+    tile = Tile((iy * 2, ix * 2 - 1), (y + pad, x),
+                left[pad:-pad, -pad:] + right[pad:-pad, :pad])
+    buf.append(tile)
+    return ()
+
+
+def _horz_edge(pad: int, top: np.ndarray, tile: Tile) -> tuple[Tile]:
+    # [- - -]    [- R -]
+    # [- - -] -> [- - -]
+    # [- X -]    [- - -]
+    (iy, ix), (y, x), bottom = tile
+    tile = Tile((2 * iy - 1, 2 * ix), (y, x + pad),
+                top[-pad:, pad:-pad] + bottom[:pad, pad:-pad])
+    return tile,
+
+
+def _angle(pad: int, idx: NDIndex,
+           data: np.ndarray) -> Generator[tuple[()], Tile, tuple[Tile]]:
+    # [- . -]    [- . -]    [- . X]    [R . -]
+    # [. . .] -> [. . .] -> [. . .] -> [. . .]
+    # [- . X]    [X . -]    [- . -]    [- . -]
+
+    # top-left + top-right
+    data = data[-pad:, -pad:] + (yield ()).data[-pad:, :pad]
+    # bottom-left
+    data += (yield ()).data[:pad, -pad:]
+    # bottom-right
+    _, vec, last = yield ()
+    data += last[:pad, :pad]
+
+    return Tile(idx, vec, data),
+
+
+def _final_send(coro: Generator[tuple[()], Tile, tuple[Tile]],
+                tile: Tile) -> tuple[Tile]:
+    try:
+        coro.send(tile)
+    except StopIteration as stop:
+        return stop.value
+    else:
+        raise RuntimeError('Coroutine not stopped')
