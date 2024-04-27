@@ -11,8 +11,8 @@ import ctypes
 import sys
 import warnings
 import weakref
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p,
                     create_string_buffer, string_at)
@@ -21,11 +21,12 @@ from enum import Enum
 from functools import cached_property
 from itertools import product
 from threading import Lock
-from typing import NamedTuple, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 import cv2
 import imagecodecs
 import numpy as np
+import numpy.typing as npt
 from glow import sizeof
 from numpy.lib.stride_tricks import as_strided
 
@@ -37,12 +38,15 @@ from ._util import (Icc, is_aperio, parse_aperio_description, parse_xml,
                     unflatten)
 
 _T = TypeVar('_T')
+_U8 = npt.NDArray[np.uint8]
 
 TIFF = load_library('libtiff', 6, 5)
 # _TIFF.TIFFSetErrorHandler(None)
 
 (TIFF.TIFFOpenW if sys.platform == 'win32' else TIFF.TIFFOpen).restype \
     = POINTER(c_ubyte)
+
+_RESOLUTION_UNITS = {2: 25400, 3: 10000}
 
 
 # ---------------------------- TIFF tags mappings ----------------------------
@@ -52,25 +56,22 @@ class _ColorSpace(Enum):
     YCBCR = 6
 
 
-class _ColorInfo(NamedTuple):
-    space: _ColorSpace
-    subsampling: tuple[int, int]
+def nv12_to_rgb(x: _U8) -> _U8:
+    w = x.shape[1]
+    assert w % 2 == 0
+    w2 = w // 2
 
-    def to_rgb(self, x: np.ndarray) -> np.ndarray:
-        if self.space is not _ColorSpace.YCBCR or self.subsampling != (2, 2):
-            return x
+    # h/2 w 3 -> h/2 w/2 6
+    # 6 channels are [Y-Y-Y-Y-Cb-Cr] of 2x2 pixel block
+    hw6 = x.reshape(-1, w2, 6)
 
-        h, w = x.shape[:2]
-        assert h % 2 == w % 2 == 0
+    # -> h/2 w/2 4 -> h/2 w/2 2 2 -> h/2 2 w/2 2 -> h w
+    y = hw6[..., :4].reshape(-1, w2, 2, 2).transpose(0, 2, 1, 3).reshape(-1, w)
+    # -> h/2 w/2 2
+    cb_cr = hw6[:, :, 4:]
 
-        # (2 h/2) w 3 -> h/2 w 3
-        # h/2 (w/2 2) 3 -> h/2 w/2 2 3 -> h/2 w/2 (2 3) -> h/2 w/2 6
-        hw6 = x[:h // 2, :, :].reshape(h // 2, w // 2, 6)
-
-        # y00, y01, y10, y11, cb, cr
-        y = hw6[:, :, [[0, 1], [2, 3]]].transpose(0, 2, 1, 3).reshape(h, w)
-        cb_cr = hw6[:, :, [4, 5]]
-        return cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
+    r = cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
+    return np.asarray(r)
 
 
 class _Compression(Enum):
@@ -98,41 +99,47 @@ class _Compression(Enum):
     WEBP = 50001
 
 
+class _Planarity(Enum):
+    CONTIG = 1  # Single buffer for all image planes
+    # SEPARATE = 2  # Separate buffers for each R/G/B plane. TODO: support
+
+
 class _Tag:  # noqa: PIE795,RUF100
-    JPEG_TABLES = 347
+    TILE_OFFSETS = 324
     TILE_BYTE_COUNTS = 325
+    JPEG_TABLES = 347
     BACKGROUND_COLOR = 434
+    ICC_PROFILE = 34675
+    JPEGCOLORMODE = 65538
 
 
 class _Tags:
     def __init__(self, ptr):
         self._ptr = ptr
+
         compression, = self._get(c_uint16, 259)
         self.compression = _Compression(compression)
 
+        planarity, = self._get(c_uint16, 284)
+        self.planarity = _Planarity(planarity)  # TODO: use later
+
         self.spp, = self._get(c_uint16, 277)
-        self.is_planar, = self._get(c_uint16, 284)
-        self.image_size = self._get(c_uint32, 257, 256)
-        self.tile_size = self._get(c_uint32, 323, 322)
-        self.description = self._get_str(270)
-        self.resolution = self._get(c_float, 283, 282)
 
         # ! crashes, but should work according to openslide docs
         # self.is_hamamatsu = bool(self._get(c_uint16, 65420))
-        self.make = self._get_str(271)
 
         self.bps, = self._get(c_uint16, 339) or [1]
 
         ics, = self._get(c_uint16, 262)
-        colorspace = _ColorSpace(ics)
-        subsampling = (1, 1)
+        self.color = _ColorSpace(ics)
+        self.subsampling = (1, 1)
 
         # TODO: use this in YCbCr conversion
         self.gray = np.array([], 'f4')  # Luma coefficients
         self.yuv_centered = True
         self.yuv_bw = np.array([], 'f4')  # BW pairs, per channel
 
-        if colorspace is _ColorSpace.YCBCR:
+        if self.color is _ColorSpace.YCBCR:
             self.gray = np.array([.299, .587, .114], 'f4')
             gray_ptr = POINTER(c_float)()
             if TIFF.TIFFGetField(self._ptr, 529, byref(gray_ptr)):
@@ -150,7 +157,7 @@ class _Tags:
             # 10bps:
             #  (2 4) = 4:1:0 (c___/____), 50% H, 25% W
             ss_w, ss_h = self._get_varargs((c_uint16, c_uint16), 530) or (2, 2)
-            subsampling = ss_h, ss_w
+            self.subsampling = ss_h, ss_w
 
             self.yuv_centered = 2 not in self._get(c_uint16, 531)
 
@@ -158,13 +165,13 @@ class _Tags:
             if TIFF.TIFFGetField(self._ptr, 532, byref(bw_ptr)):
                 self.yuv_bw = np.ctypeslib.as_array(bw_ptr, [3, 2])
 
-        self.color = _ColorInfo(colorspace, subsampling)
+            self.jpcm, = self._get(c_int, _Tag.JPEGCOLORMODE)
 
         self.icc = None
         icc_size = c_int()
         icc_ptr = c_char_p()
-        if (TIFF.TIFFGetField(self._ptr, 34675, byref(icc_size),
-                              byref(icc_ptr)) and icc_size.value > 0):
+        if TIFF.TIFFGetField(self._ptr, _Tag.ICC_PROFILE, byref(icc_size),
+                             byref(icc_ptr)) and icc_size.value > 0:
             self.icc = Icc(string_at(icc_ptr, icc_size.value))
 
     def _get(
@@ -192,54 +199,108 @@ class _Tags:
             return *(cv.value for cv in cvs),
         return ()
 
+    @property
+    def image_shape(self) -> tuple[int, int, int]:
+        shape = *self._get(c_uint32, 257, 256), self.spp
+        if len(shape) != 3:
+            raise ValueError(f'TIFF: Bad image shape - {shape}')
+        return shape
+
+    @property
+    def tile_shape(self) -> tuple[int, int, int] | None:
+        if not TIFF.TIFFIsTiled(self._ptr):
+            return None
+        tile = *self._get(c_uint32, 323, 322), self.spp
+        if len(tile) != 3:
+            raise ValueError(f'TIFF: Bad tile shape - {tile}')
+        return tile
+
+    def tile_spans(
+        self,
+        grid_shape: tuple[int, ...],
+    ) -> npt.NDArray[np.uint64]:
+        """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
+        ptr = POINTER(c_uint64)()
+        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS, byref(ptr)):
+            raise ValueError('TIFF has tiled image, but no '
+                             'tile offsets table present')
+        tbs = np.ctypeslib.as_array(ptr, grid_shape[:3]).copy()
+        # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
+
+        ptr = POINTER(c_uint64)()
+        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(ptr)):
+            raise ValueError('TIFF has tiled image, but no '
+                             'tile size table present')
+        tbc = np.ctypeslib.as_array(ptr, grid_shape[:3]).copy()
+        # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
+
+        return np.stack((tbs, tbs + tbc), -1)
+
+    def vendor_properties(self) -> tuple[str, list[str], dict[str, str]]:
+        description = self._get_str(270)
+
+        # SVS (Aperio)
+        if is_aperio(description):
+            header, meta = parse_aperio_description(description)
+            return 'aperio', header, meta
+
+        # NDPI (Hamamatsu)
+        if self._get_str(271) == 'Hamamatsu':
+            raise ValueError('TIFF: Hamamatsu is not yet supported')
+
+        # Generic TIFF
+        try:
+            meta = unflatten(parse_xml(description))
+        except Exception:  # noqa: BLE001
+            return '', [description], {}
+        else:
+            return '', [], meta
+
+    def _get_mpp(self, meta: dict) -> float | None:
+        """Extract MPP, um/pixel, phisical pixel size"""
+        if pixels_per_unit := self._get(c_float, 283, 282):
+            res_unit_kind, = self._get(c_uint16, 296)
+            if res_unit := _RESOLUTION_UNITS.get(res_unit_kind):
+                mpp_xy = [res_unit / ppu for ppu in pixels_per_unit if ppu]
+                if mpp_xy and (mpp := float(np.mean(mpp_xy))):
+                    return mpp
+
+        if mpp_s := meta.get('MPP'):
+            return float(mpp_s)
+        return None
+
+    def properties(
+        self,
+    ) -> tuple[str, list[str], dict[str, str], float | None]:
+        """Extracts: (vendor, header, metadata, mpp)"""
+        vendor, header, meta = self.vendor_properties()
+        mpp = self._get_mpp(meta)
+        return vendor, header, meta, mpp
+
 
 # -------------------------- lazy decoding proxies ---------------------------
 class SupportsArray(Protocol):
-    def __array__(self) -> np.ndarray:
+    def __array__(self) -> _U8:
         ...
 
-    def __getitem__(self, key) -> np.ndarray:
+    def __getitem__(self, key) -> _U8:
         ...
 
 
-class _ProxyArray:
-    @property
-    def numpy(self) -> np.ndarray:
-        raise NotImplementedError
+@dataclass
+class CompressedArray:
+    data: object
+    op: Callable[[Any], _U8]
 
-    def __array__(self) -> np.ndarray:
+    def __array__(self) -> _U8:
         return self.numpy
 
-    def __getitem__(self, key) -> np.ndarray:
+    def __getitem__(self, key) -> _U8:
         return self.numpy[key]
 
-
-class _CachedArray(_ProxyArray):
     @cached_property
-    def numpy(self) -> np.ndarray:
-        return self._numpy_impl()
-
-    def _numpy_impl(self) -> np.ndarray:
-        raise NotImplementedError
-
-
-@dataclass
-class CompressedArray(_CachedArray):
-    data: object
-
-    def _numpy_impl(self) -> np.ndarray:
-        return imagecodecs.imread(self.data)
-
-
-@dataclass
-class JpegArray(_CachedArray):
-    data: object
-    jpt: bytes
-    colorspace: int
-
-    def _numpy_impl(self) -> np.ndarray:
-        return imagecodecs.jpeg_decode(
-            self.data, tables=self.jpt, colorspace=self.colorspace)
+    def numpy(self) -> _U8:
+        return self.op(self.data)
 
 
 # ------------------ image, level & opener implementations -------------------
@@ -249,7 +310,6 @@ class JpegArray(_CachedArray):
 class _BaseImage(Image):
     index: int
     icc_impl: Icc | None
-    tiff: 'Tiff'
 
     @property
     def icc(self) -> Icc | None:
@@ -258,19 +318,19 @@ class _BaseImage(Image):
 
 @dataclass(frozen=True)
 class _Image(_BaseImage):
+    tiff: 'Tiff'
     head: list[str]
-    vendor: str
 
     @property
     def key(self) -> str | None:
-        if self.vendor == 'aperio' and self.index == 1:
+        if self.tiff.vendor == 'aperio' and self.index == 1:
             return 'thumbnail'
         for key in ('label', 'macro'):
             if any(key in s for s in self.head):
                 return key
         return None
 
-    def numpy(self) -> np.ndarray:
+    def numpy(self) -> _U8:
         h, w = self.shape[:2]
         rgba = np.empty((h, w, 4), dtype='u1')
 
@@ -283,50 +343,73 @@ class _Image(_BaseImage):
 
         rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        return rgba[..., :3]
+        return np.asarray(rgba[..., :3])
+
+
+@dataclass(frozen=True, slots=True)
+class _TileGrid:
+    tiff: 'Tiff'
+    index: int
+    fill: _U8
+    spans: npt.NDArray[np.uint64] = field(repr=False)
+    shape: tuple[int, ...]
+    get: Callable[[int, int, Any], SupportsArray]
+
+    def __getitem__(self, key: tuple[int, ...]) -> SupportsArray:
+        lo, hi = self.spans[key].tolist()
+
+        if lo == hi:  # If nothing to read, don't read
+            return np.broadcast_to(self.fill, self.shape[3:])
+
+        flat = int(np.ravel_multi_index(key, self.shape[:3]))
+        return self.get(flat, hi - lo, self.tiff._ptr)
+
+    def ctx(self) -> AbstractContextManager:
+        return self.tiff.ifd(self.index)
+
+
+@dataclass(frozen=True, slots=True)
+class _SyncGetter:
+    """sync(tiff read + decode)"""
+    dsize: tuple[int, ...]
+    op: Callable[[_U8], _U8] | None = None
+
+    def __call__(self, iyx: int, nbytes: int, ptr) -> SupportsArray:
+        image = np.empty(self.dsize, dtype='u1')
+        isok = TIFF.TIFFReadEncodedTile(ptr, iyx, c_void_p(image.ctypes.data),
+                                        image.size)
+        if isok == -1:
+            raise ValueError('TIFF tile read failed')
+        return self.op(image) if self.op else image
+
+
+@dataclass(frozen=True, slots=True)
+class _LazyGetter:
+    """sync(tiff read) + lazy imread"""
+    op: Callable[[Any], _U8]
+
+    def __call__(self, iyx: int, nbytes: int, ptr) -> SupportsArray:
+        data = create_string_buffer(nbytes)
+        TIFF.TIFFReadRawTile(ptr, iyx, data, len(data))
+        return CompressedArray(data, self.op)
+
+
+@dataclass(frozen=True, slots=True)
+class _JptDecoder:
+    jpt: bytes = field(repr=False)
+    color: str | None
+
+    def __call__(self, buf: Any) -> _U8:
+        return imagecodecs.jpeg_decode(
+            buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB')
 
 
 @dataclass(frozen=True)
 class _Level(ImageLevel, _BaseImage):
-    color: _ColorInfo
-    bg_color: np.ndarray
-    compression: _Compression
-    jpt: bytes = field(repr=False)
-    tile: tuple[int, ...]
-    tile_sizes: np.ndarray = field(repr=False)
+    grid: _TileGrid
+    fill: _U8
 
-    def _read_tile(self, iy, ix, ptr) -> SupportsArray:
-        nbytes = int(self.tile_sizes[iy, ix])
-
-        if not nbytes:  # If nothing to read, don't read
-            raise ValueError('File has corrupted tiles with zero size')
-            # TODO: read from previous level
-            # * If tile is empty on level N,
-            # * then all tiles on levels >N are invalid, whether empty or not
-            return np.broadcast_to(self.bg_color, self.tile)
-
-        offset = iy * self.tile_sizes.shape[1] + ix
-
-        # if not self.compression.name.startswith('JPEG2000'):
-        if self.compression not in {
-                _Compression.JPEG2000_RGB, _Compression.JPEG2000_YUV
-        }:
-            image = np.empty(self.tile, dtype='u1')
-            isok = TIFF.TIFFReadEncodedTile(ptr, offset,
-                                            c_void_p(image.ctypes.data),
-                                            image.size)
-            if isok == -1:
-                raise ValueError('TIFF tile read failed')
-            return self.color.to_rgb(image)
-
-        data = create_string_buffer(nbytes)
-        TIFF.TIFFReadRawTile(ptr, offset, data, len(data))
-
-        if self.jpt:
-            return JpegArray(data, self.jpt, self.color.space.value)
-        return CompressedArray(data)
-
-    def _get_tile(self, iy: int, ix: int, ptr, skip: bool) -> SupportsArray:
+    def _get_tile(self, loc: tuple[int, ...], prio: int) -> SupportsArray:
         # NOTE: like any op using TIFF pointer, this must be called under lock.
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
@@ -340,8 +423,8 @@ class _Level(ImageLevel, _BaseImage):
         #   (but we should, that CAN LEAD TO HIGH MEMORY USAGE).
         # TODO: adjust cache size when tile is decoded.
         # TODO: cache pixel data
-        tiff = self.tiff
-        key = (self.index, iy, ix)
+        tiff = self.grid.tiff
+        key = (self.index, *loc)
         cache = tiff.cache
 
         # Cache hit, move to the end
@@ -350,10 +433,10 @@ class _Level(ImageLevel, _BaseImage):
             return obj
 
         # Cache miss
-        obj = self._read_tile(iy, ix, ptr)
+        obj = self.grid[loc]
 
         # Non-cacheable object or no cache at all
-        if skip or not (cache_cap := env.BIPL_TILE_CACHE):
+        if not prio or not (cache_cap := env.BIPL_TILE_CACHE):
             return obj
         if (size := sizeof(obj)) > cache_cap:
             warnings.warn(
@@ -368,8 +451,8 @@ class _Level(ImageLevel, _BaseImage):
         cache[key] = (size, obj)
         return obj
 
-    def crop(self, *loc: slice) -> np.ndarray:
-        *tile, spp = self.tile
+    def crop(self, *loc: slice) -> _U8:
+        _, _, _, *tile, spp = self.grid.shape
 
         # (y/x lo/hi)
         box = np.array([(s.start, s.stop) for s in loc])
@@ -380,19 +463,24 @@ class _Level(ImageLevel, _BaseImage):
 
         bmin, bmax = box.T.clip(0, self.shape[:2])  # (y/x)
         if (bmin == bmax).any():  # Crop is outside of image
-            return np.broadcast_to(self.bg_color, out_shape)
+            return np.broadcast_to(self.fill, out_shape)
 
         iloc, masks, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
             *map(self._make_index, box[:, 0], bmin, bmax, tile))
 
-        with self.tiff.ifd(self.index) as ptr:
-            parts = self._get_n_tiles(iloc, masks, ptr)
+        with self.grid.ctx():
+            parts = [
+                self._get_tile((y, x, 0), prio) for (y, x), prio in zip(
+                    product(*(ids.tolist() for ids in iloc)),
+                    np.bitwise_or.outer(*masks).ravel().tolist(),
+                )
+            ]
 
         out = np.empty(out_shape, self.dtype)
-        out[:y0] = self.bg_color
-        out[y0:y1, :x0] = self.bg_color
-        out[y0:y1, x1:] = self.bg_color
-        out[y1:] = self.bg_color
+        out[:y0] = self.fill
+        out[y0:y1, :x0] = self.fill
+        out[y0:y1, x1:] = self.fill
+        out[y1:] = self.fill
 
         self._fill_result(out, parts, o_crops, t_crops)
 
@@ -400,7 +488,8 @@ class _Level(ImageLevel, _BaseImage):
 
     def _make_index(
         self, min_: int, vmin: int, vmax: int, tile: int
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, npt.NDArray[np.bool_], np.ndarray, np.ndarray,
+               list]:
         # (n + 1)
         ids1 = np.arange(vmin // tile, 1 - (-vmax // tile))
         n = ids1.size - 1
@@ -422,17 +511,9 @@ class _Level(ImageLevel, _BaseImage):
 
         return ids1[:-1], mask, t_crops, o_crops, o_span
 
-    def _get_n_tiles(self, iloc, masks, ptr):
-        parts = [
-            self._get_tile(y, x, ptr, skip_cache)
-            for (y, x), skip_cache in zip(
-                product(*(ids.tolist() for ids in iloc)),
-                np.bitwise_and.outer(*masks).ravel().tolist(),
-            )
-        ]
-        return parts
-
-    def _fill_result(self, out, parts, o_crops, t_crops):
+    def _fill_result(self, out: _U8, parts: list[SupportsArray],
+                     o_crops: tuple[np.ndarray, ...],
+                     t_crops: tuple[np.ndarray, ...]) -> None:
         for part, (oy, ox), (ty, tx) in zip(parts, product(*o_crops),
                                             product(*t_crops)):
             # NOTE: This call does decoding and caching of pixel data
@@ -456,6 +537,10 @@ class Tiff(Driver):
         self.cache: dict[tuple, tuple[int, SupportsArray]] = {}
         self.cache_size = 0
 
+        # Initially directory 0 is active
+        tags = _Tags(self._ptr)
+        self.vendor, _, self._meta, self.mpp = tags.properties()
+
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
 
@@ -470,7 +555,7 @@ class Tiff(Driver):
     def __len__(self) -> int:
         return TIFF.TIFFNumberOfDirectories(self._ptr)
 
-    def _bg_color(self) -> np.ndarray:
+    def _bg_color(self) -> _U8:
         bg_hex = b'FFFFFF'
         bg_color_ptr = c_char_p()
         # TODO: find sample file to test this path. Never reached
@@ -480,84 +565,71 @@ class Tiff(Driver):
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
-    def _parse_description(self, desc: str,
-                           make: str) -> tuple[str, list[str], dict[str, str]]:
-        vendor = ''
-        if is_aperio(desc):
-            vendor = 'aperio'
-            head, meta = parse_aperio_description(desc)
-
-        else:
-            if make == 'Hamamatsu':
-                raise ValueError('Hamamatsu is not yet supported via libtiff')
-            try:
-                head = []
-                meta = unflatten(parse_xml(desc))
-            except Exception:  # noqa: BLE001
-                head = [desc]
-                meta = {}
-
-        return vendor, head, meta
-
-    def _mpp(self, resolution: tuple[float, ...],
-             meta: dict[str, str]) -> float | None:
-        if s := [(10_000 / v) for v in resolution if v]:
-            return float(np.mean(s))
-        if mpp := meta.get('MPP'):
-            return float(mpp)
-        return None
-
     def _get(self, index: int) -> Image:
         tags = _Tags(self._ptr)
 
-        if tags.is_planar != 1:
-            raise TypeError(f'Level {index} is not contiguous!')
-
         bg_color = self._bg_color()
-        vendor, head, meta = self._parse_description(tags.description,
-                                                     tags.make)
-        mpp = self._mpp(tags.resolution, meta) if index == 0 else None
+        _, head, _ = tags.vendor_properties()
 
-        if (tags.color.space is _ColorSpace.YCBCR
-                and tags.color.subsampling != (2, 2)):
+        if tags.color is _ColorSpace.YCBCR and tags.subsampling != (2, 2):
             raise ValueError('Unsupported YUV subsampling: '
-                             f'{tags.color.subsampling}')
+                             f'{tags.subsampling}')
 
         # Compression and JPEG tables
         jpt = b''
-        if tags.compression is _Compression.JPEG:
-            count = c_int()
-            jpt_ptr = c_char_p()
-            if TIFF.TIFFGetField(self._ptr, _Tag.JPEG_TABLES, byref(count),
-                                 byref(jpt_ptr)) and count.value > 4:
-                jpt = string_at(jpt_ptr, count.value)
-                # TIFF._TIFFfree(jpt_ptr)  # TODO: ensure no segfault
+        count = c_int()
+        ptr = c_char_p()
+        if (tags.compression is _Compression.JPEG and TIFF.TIFFGetField(
+                self._ptr, _Tag.JPEG_TABLES, byref(count), byref(ptr))
+                and count.value > 4):
+            jpt = string_at(ptr, count.value)
+            # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
 
-        # Whole level shape
-        shape = (*tags.image_size, tags.spp)
-        if len(shape) != 3:
-            raise ValueError(f'Bad shape in TIFF: {shape}')
+        shape = tags.image_shape
+        tile = tags.tile_shape
 
-        # Tile shape, if applicable
-        if not TIFF.TIFFIsTiled(self._ptr):  # Not yet supported
-            return _Image(shape, index, tags.icc, self, head, vendor)
+        if tile is None:  # Not tiled
+            return _Image(shape, index, tags.icc, self, head)
 
-        # Tile sizes
-        tile = (*tags.tile_size, tags.spp)
-        if len(tile) != 3:
-            raise ValueError(f'Bad tile shape in TIFF: {tile}')
+        tile_grid_shape = *(len(range(0, s, t))
+                            for s, t in zip(shape, tile)), *tile
+        spans = tags.tile_spans(tile_grid_shape)
 
-        tbc = np.empty([], 'u8')
-        tbc_ptr = POINTER(c_uint64)()
-        if TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(tbc_ptr)):
-            num_tiles = *(len(range(0, s, t)) for s, t in zip(shape, tile)),
-            tbc = np.ctypeslib.as_array(tbc_ptr, num_tiles).copy()
-            # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
-            if (tbc == 0).any():
-                raise ValueError('Found 0s in tile size table')
+        # Aperio can choke on non-L0 levels. Read those from L0 to fix.
+        # `openslide` does this for us, delegate to it.
+        if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
+            raise ValueError('Found 0s in tile size table')
 
-        return _Level(shape, index, tags.icc, self, mpp, tags.color, bg_color,
-                      tags.compression, jpt, tile, tbc)
+        decoder: Callable[[Any], _U8] = imagecodecs.imread  # type: ignore
+        if jpt:
+            # libtiff reads (under lock), imagecodecs decodes
+            assert tags.compression is _Compression.JPEG
+            decoder = _JptDecoder(jpt, tags.color.name)
+            getter = _LazyGetter(decoder)
+
+        elif tags.compression in (_Compression.JPEG2000_RGB,
+                                  _Compression.JPEG2000_YUV):
+            # libtiff reads (under lock), imagecodecs decodes
+            decoder = imagecodecs.jpeg2k_decode
+            getter = _LazyGetter(decoder)
+
+        elif (tags.color is _ColorSpace.YCBCR and tags.subsampling == (2, 2)
+              and tags.jpcm == 0):
+            # libtiff reads & decodes (under lock)
+            # Add YCbCr-RGB conversion
+            if np.mod(tile[:2], 2).any():
+                raise ValueError('Tile size is not multiple of '
+                                 'YCbCr subsampling')
+            # NV12 decoding, 1.5 byte/pixel
+            getter = _SyncGetter((tile[0] // 2, *tile[1:]), nv12_to_rgb)
+
+        else:
+            # libtiff reads & decodes (under lock)
+            getter = _SyncGetter(tile)
+
+        grid = _TileGrid(self, index, bg_color, spans, tile_grid_shape, getter)
+
+        return _Level(shape, index, tags.icc, self.mpp, grid, bg_color)
 
     def __getitem__(self, index: int) -> Image:
         with self.ifd(index):
