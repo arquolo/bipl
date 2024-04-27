@@ -220,7 +220,7 @@ class Driver:
         """Count of indexed images, usually resolution images"""
         return 0
 
-    def __getitem__(self, index: int) -> Image:
+    def __getitem__(self, index: int) -> Image | None:
         """Gives indexed image"""
         raise NotImplementedError
 

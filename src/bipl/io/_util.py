@@ -75,6 +75,14 @@ def parse_aperio_description(s: str) -> tuple[list[str], dict[str, str]]:
 # ----------------------------- xml description ------------------------------
 
 
+def get_ventana_iscan(s: bytes) -> dict[str, str]:
+    t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
+    root = t.find('iScan')
+    if root is None:
+        return {}
+    return dict(root.items())
+
+
 def parse_xml(s: str,
               /,
               *,

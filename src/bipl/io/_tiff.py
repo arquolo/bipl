@@ -34,8 +34,8 @@ from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel
-from ._util import (Icc, is_aperio, parse_aperio_description, parse_xml,
-                    unflatten)
+from ._util import (Icc, get_ventana_iscan, is_aperio,
+                    parse_aperio_description, parse_xml, unflatten)
 
 _T = TypeVar('_T')
 _U8 = npt.NDArray[np.uint8]
@@ -109,6 +109,7 @@ class _Tag:  # noqa: PIE795,RUF100
     TILE_BYTE_COUNTS = 325
     JPEG_TABLES = 347
     BACKGROUND_COLOR = 434
+    XMP = 700
     ICC_PROFILE = 34675
     JPEGCOLORMODE = 65538
 
@@ -239,6 +240,15 @@ class _Tags:
     def vendor_properties(self) -> tuple[str, list[str], dict[str, str]]:
         description = self._get_str(270)
 
+        # BIF (Ventana/Roche)
+        xmp_size = c_int()
+        xmp_ptr = c_char_p()
+        if TIFF.TIFFGetField(self._ptr, _Tag.XMP, byref(xmp_size),
+                             byref(xmp_ptr)) and xmp_size.value > 0:
+            xmp = string_at(xmp_ptr, xmp_size.value)
+            if meta := get_ventana_iscan(xmp):
+                return 'ventana', [description], meta
+
         # SVS (Aperio)
         if is_aperio(description):
             header, meta = parse_aperio_description(description)
@@ -256,8 +266,12 @@ class _Tags:
         else:
             return '', [], meta
 
-    def _get_mpp(self, meta: dict) -> float | None:
+    def _get_mpp(self, vendor: str, meta: dict) -> float | None:
         """Extract MPP, um/pixel, phisical pixel size"""
+        if vendor == 'ventana':
+            # Ventana messes with TIFF tag XResolution, YResolution
+            return float(mpp_s) if (mpp_s := meta.get('ScanRes')) else None
+
         if pixels_per_unit := self._get(c_float, 283, 282):
             res_unit_kind, = self._get(c_uint16, 296)
             if res_unit := _RESOLUTION_UNITS.get(res_unit_kind):
@@ -274,7 +288,7 @@ class _Tags:
     ) -> tuple[str, list[str], dict[str, str], float | None]:
         """Extracts: (vendor, header, metadata, mpp)"""
         vendor, header, meta = self.vendor_properties()
-        mpp = self._get_mpp(meta)
+        mpp = self._get_mpp(vendor, meta)
         return vendor, header, meta, mpp
 
 
@@ -325,6 +339,8 @@ class _Image(_BaseImage):
     def key(self) -> str | None:
         if self.tiff.vendor == 'aperio' and self.index == 1:
             return 'thumbnail'
+        if self.tiff.vendor == 'ventana' and self.index == 0:
+            return 'label'
         for key in ('label', 'macro'):
             if any(key in s for s in self.head):
                 return key
@@ -565,7 +581,7 @@ class Tiff(Driver):
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
-    def _get(self, index: int) -> Image:
+    def _get(self, index: int) -> Image | None:
         tags = _Tags(self._ptr)
 
         bg_color = self._bg_color()
@@ -631,6 +647,6 @@ class Tiff(Driver):
 
         return _Level(shape, index, tags.icc, self.mpp, grid, bg_color)
 
-    def __getitem__(self, index: int) -> Image:
+    def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
             return self._get(index)

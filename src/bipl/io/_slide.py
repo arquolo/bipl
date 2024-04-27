@@ -47,7 +47,7 @@ _drv: type[Driver] | None
 for _drv, _regex in [  # LIFO, last driver takes priority
     (Gdal, r'^.*\.(tif|tiff)$'),
     (Openslide, r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
-    (Tiff, r'^.*\.(svs|tif|tiff)$'),
+    (Tiff, r'^.*\.(bif|svs|tif|tiff)$'),
     (Gdal, r'^(/vsicurl.*|(http|https|ftp)://.*)$'),
 ]:
     if _drv is not None and _drv.__name__.lower() in env.BIPL_DRIVERS:
@@ -111,20 +111,22 @@ class Slide:
         if num_images == 0:
             raise ValueError('Empty file')
 
-        im_0, *images = (driver[idx] for idx in range(num_images))
-        if not isinstance(im_0, ImageLevel):
-            raise TypeError('First pyramid layer is not tiled')
-
         # Retrieve all sub-images
-        levels: dict[int, ImageLevel] = {1: im_0}
+        levels: dict[int, ImageLevel] = {}
         extras: dict[str, Image] = {}
-        for im in images:
-            if isinstance(im, ImageLevel):
-                downsample = round2(im_0.shape[0] / im.shape[0])
-                levels[downsample] = im
-            elif key := im.key:
-                extras[key] = im
+        for idx in range(num_images):
+            match driver[idx]:
+                case ImageLevel(shape=shape) as im:
+                    levels[round2(levels[1].shape[0]
+                                  / shape[0]) if levels else 1] = im
+                case Image(key=str(key)) as im:
+                    extras[key] = im
+                case _:
+                    continue
+
         extras |= driver.named_items()
+        if not levels:
+            raise TypeError('No tiled layers present')
 
         level_downsamples = *sorted(levels.keys()),
         # TODO: make virtual levels if downsamples are too distant (ProxyLevel)
