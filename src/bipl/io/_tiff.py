@@ -8,20 +8,19 @@ Driver based on libtiff
 __all__ = ['Tiff']
 
 import ctypes
+import mmap
 import sys
 import warnings
 import weakref
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
-                    c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p,
-                    create_string_buffer, string_at)
+                    c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p, string_at)
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import cached_property
 from itertools import product
 from threading import Lock
-from typing import Any, Protocol, TypeVar
+from typing import Any, TypeVar
 
 import cv2
 import imagecodecs
@@ -292,31 +291,6 @@ class _Tags:
         return vendor, header, meta, mpp
 
 
-# -------------------------- lazy decoding proxies ---------------------------
-class SupportsArray(Protocol):
-    def __array__(self) -> _U8:
-        ...
-
-    def __getitem__(self, key) -> _U8:
-        ...
-
-
-@dataclass
-class CompressedArray:
-    data: object
-    op: Callable[[Any], _U8]
-
-    def __array__(self) -> _U8:
-        return self.numpy
-
-    def __getitem__(self, key) -> _U8:
-        return self.numpy[key]
-
-    @cached_property
-    def numpy(self) -> _U8:
-        return self.op(self.data)
-
-
 # ------------------ image, level & opener implementations -------------------
 
 
@@ -350,6 +324,7 @@ class _Image(_BaseImage):
         h, w = self.shape[:2]
         rgba = np.empty((h, w, 4), dtype='u1')
 
+        # TODO: find offset & size of such images
         with self.tiff.ifd(self.index) as ptr:
             ok = TIFF.TIFFReadRGBAImageOriented(ptr, w, h,
                                                 c_void_p(rgba.ctypes.data), 1,
@@ -364,50 +339,16 @@ class _Image(_BaseImage):
 
 @dataclass(frozen=True, slots=True)
 class _TileGrid:
-    tiff: 'Tiff'
-    index: int
-    fill: _U8
+    memo: mmap.mmap
     spans: npt.NDArray[np.uint64] = field(repr=False)
     shape: tuple[int, ...]
-    get: Callable[[int, int, Any], SupportsArray]
+    decode: Callable[[Any], _U8]
 
-    def __getitem__(self, key: tuple[int, ...]) -> SupportsArray:
+    def __getitem__(self, key: tuple[int, ...]) -> _U8 | None:
         lo, hi = self.spans[key].tolist()
-
         if lo == hi:  # If nothing to read, don't read
-            return np.broadcast_to(self.fill, self.shape[3:])
-
-        flat = int(np.ravel_multi_index(key, self.shape[:3]))
-        return self.get(flat, hi - lo, self.tiff._ptr)
-
-    def ctx(self) -> AbstractContextManager:
-        return self.tiff.ifd(self.index)
-
-
-@dataclass(frozen=True, slots=True)
-class _SyncGetter:
-    """sync(tiff read + decode)"""
-    dsize: tuple[int, ...]
-    op: Callable[[_U8], _U8] | None = None
-
-    def __call__(self, iyx: int, nbytes: int, ptr) -> SupportsArray:
-        image = np.empty(self.dsize, dtype='u1')
-        isok = TIFF.TIFFReadEncodedTile(ptr, iyx, c_void_p(image.ctypes.data),
-                                        image.size)
-        if isok == -1:
-            raise ValueError('TIFF tile read failed')
-        return self.op(image) if self.op else image
-
-
-@dataclass(frozen=True, slots=True)
-class _LazyGetter:
-    """sync(tiff read) + lazy imread"""
-    op: Callable[[Any], _U8]
-
-    def __call__(self, iyx: int, nbytes: int, ptr) -> SupportsArray:
-        data = create_string_buffer(nbytes)
-        TIFF.TIFFReadRawTile(ptr, iyx, data, len(data))
-        return CompressedArray(data, self.op)
+            return None
+        return self.decode(self.memo[lo:hi])
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,27 +364,23 @@ class _JptDecoder:
 @dataclass(frozen=True)
 class _Level(ImageLevel, _BaseImage):
     grid: _TileGrid
+    cache: Any
+    lock: Lock
     fill: _U8
 
-    def _get_tile(self, loc: tuple[int, ...], prio: int) -> SupportsArray:
-        # NOTE: like any op using TIFF pointer, this must be called under lock.
+    def _get_tile(self, loc: tuple[int, ...], prio: int) -> _U8 | None:
+        # NOTE: interacts with cache, thus must be called under lock.
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
-        # with (level, y, x) key.
-        # But:
-        # - we store compressed data instead of pixel data to cache more tiles.
-        # - we cache opened slides to not waste time on re-opening
+        #   with (level, y, x) key to cache decoded pixels.
+        # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        # NOTE:
-        # If tile becomes uncompressed we don't evict old compressed data.
-        #   (but we should, that CAN LEAD TO HIGH MEMORY USAGE).
-        # TODO: adjust cache size when tile is decoded.
-        # TODO: cache pixel data
-        tiff = self.grid.tiff
+        # TODO: cache pooled images
+        # TODO: use tasks to move compute out of lock
+        cache = self.cache
         key = (self.index, *loc)
-        cache = tiff.cache
 
-        # Cache hit, move to the end
+        # Cache hit
         if (entry := cache.pop(key, None)) is not None:
             _, obj = cache[key] = entry
             return obj
@@ -484,7 +421,7 @@ class _Level(ImageLevel, _BaseImage):
         iloc, masks, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
             *map(self._make_index, box[:, 0], bmin, bmax, tile))
 
-        with self.grid.ctx():
+        with self.lock:
             parts = [
                 self._get_tile((y, x, 0), prio) for (y, x), prio in zip(
                     product(*(ids.tolist() for ids in iloc)),
@@ -497,9 +434,12 @@ class _Level(ImageLevel, _BaseImage):
         out[y0:y1, :x0] = self.fill
         out[y0:y1, x1:] = self.fill
         out[y1:] = self.fill
-
-        self._fill_result(out, parts, o_crops, t_crops)
-
+        for part, (oy, ox), (ty, tx) in zip(parts, product(*o_crops),
+                                            product(*t_crops)):
+            if part is None:
+                out[slice(*oy), slice(*ox)] = self.fill
+            else:
+                out[slice(*oy), slice(*ox)] = part[slice(*ty), slice(*tx)]
         return out
 
     def _make_index(
@@ -527,20 +467,10 @@ class _Level(ImageLevel, _BaseImage):
 
         return ids1[:-1], mask, t_crops, o_crops, o_span
 
-    def _fill_result(self, out: _U8, parts: list[SupportsArray],
-                     o_crops: tuple[np.ndarray, ...],
-                     t_crops: tuple[np.ndarray, ...]) -> None:
-        for part, (oy, ox), (ty, tx) in zip(parts, product(*o_crops),
-                                            product(*t_crops)):
-            # NOTE: This call does decoding and caching of pixel data
-            #       sequentially, but can be done in parallel.
-            out[slice(*oy), slice(*ox)] = part[slice(*ty), slice(*tx)]
-
 
 # FIXME: Get around slides from choked SVS encoder
 class Tiff(Driver):
     def __init__(self, path: str):
-        # TODO: use memmap instead of libtiff
         self._ptr = (
             TIFF.TIFFOpenW(path, b'rm') if sys.platform == 'win32' else
             TIFF.TIFFOpen(path.encode(), b'rm'))
@@ -550,12 +480,15 @@ class Tiff(Driver):
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
         self._dir = 0
         self._lock = Lock()
-        self.cache: dict[tuple, tuple[int, SupportsArray]] = {}
+        self.cache: dict[tuple, tuple[int, _U8 | None]] = {}
         self.cache_size = 0
 
         # Initially directory 0 is active
         tags = _Tags(self._ptr)
         self.vendor, _, self._meta, self.mpp = tags.properties()
+
+        with open(path, 'rb') as f:
+            self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
@@ -617,35 +550,16 @@ class Tiff(Driver):
             raise ValueError('Found 0s in tile size table')
 
         decoder: Callable[[Any], _U8] = imagecodecs.imread  # type: ignore
-        if jpt:
-            # libtiff reads (under lock), imagecodecs decodes
-            assert tags.compression is _Compression.JPEG
+        if tags.compression is _Compression.JPEG and jpt:
             decoder = _JptDecoder(jpt, tags.color.name)
-            getter = _LazyGetter(decoder)
-
         elif tags.compression in (_Compression.JPEG2000_RGB,
                                   _Compression.JPEG2000_YUV):
-            # libtiff reads (under lock), imagecodecs decodes
             decoder = imagecodecs.jpeg2k_decode
-            getter = _LazyGetter(decoder)
 
-        elif (tags.color is _ColorSpace.YCBCR and tags.subsampling == (2, 2)
-              and tags.jpcm == 0):
-            # libtiff reads & decodes (under lock)
-            # Add YCbCr-RGB conversion
-            if np.mod(tile[:2], 2).any():
-                raise ValueError('Tile size is not multiple of '
-                                 'YCbCr subsampling')
-            # NV12 decoding, 1.5 byte/pixel
-            getter = _SyncGetter((tile[0] // 2, *tile[1:]), nv12_to_rgb)
+        grid = _TileGrid(self._memo, spans, tile_grid_shape, decoder)
 
-        else:
-            # libtiff reads & decodes (under lock)
-            getter = _SyncGetter(tile)
-
-        grid = _TileGrid(self, index, bg_color, spans, tile_grid_shape, getter)
-
-        return _Level(shape, index, tags.icc, self.mpp, grid, bg_color)
+        return _Level(shape, index, tags.icc, self.mpp, grid, self.cache,
+                      self._lock, bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
