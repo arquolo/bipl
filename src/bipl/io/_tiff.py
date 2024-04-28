@@ -18,15 +18,16 @@ from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p, string_at)
 from dataclasses import dataclass, field
 from enum import Enum
+from heapq import heappop, heappush
 from itertools import product
 from threading import Lock
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 import cv2
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import sizeof
+from glow import shared_call, si_bin, sizeof
 from numpy.lib.stride_tricks import as_strided
 
 from bipl._env import env
@@ -364,44 +365,28 @@ class _JptDecoder:
 @dataclass(frozen=True)
 class _Level(ImageLevel, _BaseImage):
     grid: _TileGrid
-    cache: Any
-    lock: Lock
+    cache: '_CacheZYXC'
     fill: _U8
 
-    def _get_tile(self, loc: tuple[int, ...], prio: int) -> _U8 | None:
-        # NOTE: interacts with cache, thus must be called under lock.
+    def __eq__(self, rhs) -> bool:
+        return isinstance(rhs, _Level) and self.grid is rhs.grid
+
+    def __hash__(self) -> int:
+        return hash(self.grid.memo) & hash(self.shape)
+
+    @shared_call  # Thread safety
+    def _get_tile(self, loc: tuple[int, ...]) -> _U8 | None:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
         # TODO: cache pooled images
-        # TODO: use tasks to move compute out of lock
         cache = self.cache
-        key = (self.index, *loc)
+        key = (-self.index, *loc)
 
-        # Cache hit
-        if (entry := cache.pop(key, None)) is not None:
-            _, obj = cache[key] = entry
-            return obj
-
-        # Cache miss
-        obj = self.grid[loc]
-
-        # Non-cacheable object or no cache at all
-        if not prio or not (cache_cap := env.BIPL_TILE_CACHE):
-            return obj
-        if (size := sizeof(obj)) > cache_cap:
-            warnings.warn(
-                f'Rejecting overlarge cache entry of size {size} bytes',
-                stacklevel=3)
-            return obj
-
-        # Remove least recently used entries and put new one
-        tiff.cache_size += size
-        while tiff.cache_size > cache_cap:
-            tiff.cache_size -= cache.pop(next(iter(cache)))[0]
-        cache[key] = (size, obj)
+        if (obj := cache[key]) is _empty:
+            cache[key] = obj = self.grid[loc]
         return obj
 
     def crop(self, *loc: slice) -> _U8:
@@ -418,16 +403,13 @@ class _Level(ImageLevel, _BaseImage):
         if (bmin == bmax).any():  # Crop is outside of image
             return np.broadcast_to(self.fill, out_shape)
 
-        iloc, masks, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
+        iloc, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
             *map(self._make_index, box[:, 0], bmin, bmax, tile))
 
-        with self.lock:
-            parts = [
-                self._get_tile((y, x, 0), prio) for (y, x), prio in zip(
-                    product(*(ids.tolist() for ids in iloc)),
-                    np.bitwise_or.outer(*masks).ravel().tolist(),
-                )
-            ]
+        parts = [
+            self._get_tile((y, x, 0))
+            for y, x in product(*(ids.tolist() for ids in iloc))
+        ]
 
         out = np.empty(out_shape, self.dtype)
         out[:y0] = self.fill
@@ -443,9 +425,8 @@ class _Level(ImageLevel, _BaseImage):
         return out
 
     def _make_index(
-        self, min_: int, vmin: int, vmax: int, tile: int
-    ) -> tuple[np.ndarray, npt.NDArray[np.bool_], np.ndarray, np.ndarray,
-               list]:
+            self, min_: int, vmin: int, vmax: int,
+            tile: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
         # (n + 1)
         ids1 = np.arange(vmin // tile, 1 - (-vmax // tile))
         n = ids1.size - 1
@@ -460,12 +441,7 @@ class _Level(ImageLevel, _BaseImage):
         # (lo/hi), region of `out` to fill
         o_span = o_crops[[0, -1], [0, 1]].tolist()
 
-        # Cache only edges
-        # Increases cache usage for linear reads (such as in `ops.Mosaic`)
-        mask = np.zeros(n, np.bool_)
-        mask[1:-1] = True
-
-        return ids1[:-1], mask, t_crops, o_crops, o_span
+        return ids1[:-1], t_crops, o_crops, o_span
 
 
 # FIXME: Get around slides from choked SVS encoder
@@ -480,8 +456,7 @@ class Tiff(Driver):
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
         self._dir = 0
         self._lock = Lock()
-        self.cache: dict[tuple, tuple[int, _U8 | None]] = {}
-        self.cache_size = 0
+        self.cache = _CacheZYXC()
 
         # Initially directory 0 is active
         tags = _Tags(self._ptr)
@@ -559,8 +534,55 @@ class Tiff(Driver):
         grid = _TileGrid(self._memo, spans, tile_grid_shape, decoder)
 
         return _Level(shape, index, tags.icc, self.mpp, grid, self.cache,
-                      self._lock, bg_color)
+                      bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
             return self._get(index)
+
+
+# ------------------------------- tile caching -------------------------------
+class _Empty(Enum):
+    empty = 0
+
+
+_empty: Literal[_Empty.empty] = _Empty.empty
+
+
+@dataclass(repr=False, slots=True)
+class _CacheZYXC:
+    lock: Lock = field(default_factory=Lock, repr=False)
+    used: int = 0
+    keys: list[tuple] = field(default_factory=list, repr=False)
+    # IYXC -> (size, buf | None)
+    buf: dict[tuple, tuple[int, _U8 | None]] = field(
+        default_factory=dict, repr=False)
+
+    def __repr__(self) -> str:
+        return (f'{type(self).__name__}'
+                f'(used={si_bin(self.used)}, items={len(self.buf)})')
+
+    def __getitem__(self, key: tuple) -> _U8 | None | Literal[_Empty.empty]:
+        with self.lock:
+            if e := self.buf.get(key):
+                return e[1]
+        return _empty
+
+    def __setitem__(self, key: tuple, obj: _U8 | None):
+        if not (capacity := env.BIPL_TILE_CACHE):
+            return
+        if (size := sizeof(obj)) > capacity:
+            warnings.warn(
+                f'Rejecting overlarge cache entry of size {size} bytes',
+                stacklevel=3)
+            return
+        max_size = capacity - size
+
+        with self.lock:
+            while self.keys and self.used > max_size:
+                self.used -= self.buf.pop(heappop(self.keys))[0]
+
+            if self.used <= max_size:
+                heappush(self.keys, key)
+                self.buf[key] = (size, obj)
+                self.used += size
