@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p, string_at)
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from heapq import heappop, heappush
 from itertools import product
@@ -344,12 +344,21 @@ class _TileGrid:
     spans: npt.NDArray[np.uint64] = field(repr=False)
     shape: tuple[int, ...]
     decode: Callable[[Any], _U8]
+    order: int = 0
 
     def __getitem__(self, key: tuple[int, ...]) -> _U8 | None:
         lo, hi = self.spans[key].tolist()
         if lo == hi:  # If nothing to read, don't read
             return None
-        return self.decode(self.memo[lo:hi])
+        r = self.decode(self.memo[lo:hi])
+
+        h, w = self.shape[3:5]
+        if r.shape[:2] != (h, w):
+            if self.order > 1:
+                r = cv2.resize(r, (h, w), interpolation=cv2.INTER_AREA)
+            else:
+                r = cv2.resize(r, (h, w))
+        return np.asarray(r)
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,8 +377,26 @@ class _Level(ImageLevel, _BaseImage):
     cache: '_CacheZYXC'
     fill: _U8
 
+    def octave(self) -> '_Level | None':
+        *gshape, th, tw, tc = self.grid.shape
+        if th % 2 or tw % 2:
+            return None
+
+        h, w, c = self.shape
+        return replace(
+            self,
+            shape=((h + 1) // 2, (w + 1) // 2, c),
+            grid=replace(
+                self.grid,
+                shape=(*gshape, th // 2, tw // 2, tc),
+                order=self.grid.order + 1,
+            ),
+            mpp=self.mpp * 2 if self.mpp is not None else None,
+        )
+
     def __eq__(self, rhs) -> bool:
-        return isinstance(rhs, _Level) and self.grid is rhs.grid
+        return (type(rhs) is _Level and self.grid.memo is rhs.grid.memo
+                and self.shape == rhs.shape)
 
     def __hash__(self) -> int:
         return hash(self.grid.memo) & hash(self.shape)
@@ -381,9 +408,8 @@ class _Level(ImageLevel, _BaseImage):
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        # TODO: cache pooled images
         cache = self.cache
-        key = (-self.index, *loc)
+        key = (-self.index, -self.grid.order, *loc)
 
         if (obj := cache[key]) is _empty:
             cache[key] = obj = self.grid[loc]

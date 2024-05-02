@@ -95,6 +95,9 @@ class ImageLevel(Image):
         r_tile = max(_MIN_TILE // downsample, 1)
         return TiledProxyLevel((h, w, c), mpp, scale, base, downsample, r_tile)
 
+    def octave(self) -> 'ImageLevel | None':
+        return None
+
     def _unpack_2d_loc(
         self,
         *slices: slice,
@@ -162,7 +165,7 @@ class ProxyLevel(ImageLevel):
     base: ImageLevel
 
     def _get_loc(self, *src_loc: slice) -> np.ndarray:
-        return self.base[src_loc]
+        return self.base.crop(*src_loc)
 
     def crop(self, *loc: slice) -> np.ndarray:
         src_loc = *[

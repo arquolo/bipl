@@ -5,7 +5,6 @@ import warnings
 from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from math import ceil
 from pathlib import Path
 from typing import final, overload
 from warnings import warn
@@ -129,7 +128,6 @@ class Slide:
             raise TypeError('No tiled layers present')
 
         level_downsamples = *sorted(levels.keys()),
-        # TODO: make virtual levels if downsamples are too distant (ProxyLevel)
 
         if mpp is None:  # If no override is passed, use native if present
             mpp = levels[1].mpp
@@ -206,7 +204,14 @@ class Slide:
         """Gives the most detailed LOD below `downsample`"""
         downsample = downsample * max(1, 1 + tol)
         idx = max(bisect_right(self.downsamples, downsample) - 1, 0)
-        return self.downsamples[idx], self.levels[idx]
+        ds = self.downsamples[idx]
+        lv = self.levels[idx]
+
+        # Make octave level as close as possible to target
+        while (ds_ := ds * 2) < downsample and (lv_ := lv.octave()):
+            ds, lv = ds_, lv_
+
+        return ds, lv
 
     def resample(self, mpp: float, *, tol: float = 0.01) -> ImageLevel:
         """Resample slide to specific resolution"""
