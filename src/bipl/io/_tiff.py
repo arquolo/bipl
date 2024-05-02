@@ -21,7 +21,7 @@ from enum import Enum
 from heapq import heappop, heappush
 from itertools import product
 from threading import Lock
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar
 
 import cv2
 import imagecodecs
@@ -216,23 +216,23 @@ class _Tags:
             raise ValueError(f'TIFF: Bad tile shape - {tile}')
         return tile
 
-    def tile_spans(
-        self,
-        grid_shape: tuple[int, ...],
-    ) -> npt.NDArray[np.uint64]:
+    def tile_spans(self, shape: tuple[int, ...],
+                   tile: tuple[int, ...]) -> npt.NDArray[np.uint64]:
         """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
+        grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile)),
+
         ptr = POINTER(c_uint64)()
         if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS, byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile offsets table present')
-        tbs = np.ctypeslib.as_array(ptr, grid_shape[:3]).copy()
+        tbs = np.ctypeslib.as_array(ptr, grid_shape).copy()
         # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
 
         ptr = POINTER(c_uint64)()
         if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile size table present')
-        tbc = np.ctypeslib.as_array(ptr, grid_shape[:3]).copy()
+        tbc = np.ctypeslib.as_array(ptr, grid_shape).copy()
         # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
 
         return np.stack((tbs, tbs + tbc), -1)
@@ -297,7 +297,6 @@ class _Tags:
 
 @dataclass(frozen=True)
 class _BaseImage(Image):
-    index: int
     icc_impl: Icc | None
 
     @property
@@ -309,6 +308,7 @@ class _BaseImage(Image):
 class _Image(_BaseImage):
     tiff: 'Tiff'
     head: list[str]
+    index: int
 
     @property
     def key(self) -> str | None:
@@ -339,29 +339,6 @@ class _Image(_BaseImage):
 
 
 @dataclass(frozen=True, slots=True)
-class _TileGrid:
-    memo: mmap.mmap
-    spans: npt.NDArray[np.uint64] = field(repr=False)
-    shape: tuple[int, ...]
-    decode: Callable[[Any], _U8]
-    order: int = 0
-
-    def __getitem__(self, key: tuple[int, ...]) -> _U8 | None:
-        lo, hi = self.spans[key].tolist()
-        if lo == hi:  # If nothing to read, don't read
-            return None
-        r = self.decode(self.memo[lo:hi])
-
-        h, w = self.shape[3:5]
-        if r.shape[:2] != (h, w):
-            if self.order > 1:
-                r = cv2.resize(r, (h, w), interpolation=cv2.INTER_AREA)
-            else:
-                r = cv2.resize(r, (h, w))
-        return np.asarray(r)
-
-
-@dataclass(frozen=True, slots=True)
 class _JptDecoder:
     jpt: bytes = field(repr=False)
     color: str | None
@@ -373,12 +350,16 @@ class _JptDecoder:
 
 @dataclass(frozen=True)
 class _Level(ImageLevel, _BaseImage):
-    grid: _TileGrid
+    memo: mmap.mmap
+    spans: npt.NDArray[np.uint64] = field(repr=False)
+    tile: tuple[int, ...]
+    decode: Callable[[Any], _U8]
     cache: '_CacheZYXC'
     fill: _U8
+    pool: int = 1
 
     def octave(self) -> '_Level | None':
-        *gshape, th, tw, tc = self.grid.shape
+        th, tw, tc = self.tile
         if th % 2 or tw % 2:
             return None
 
@@ -386,36 +367,47 @@ class _Level(ImageLevel, _BaseImage):
         return replace(
             self,
             shape=((h + 1) // 2, (w + 1) // 2, c),
-            grid=replace(
-                self.grid,
-                shape=(*gshape, th // 2, tw // 2, tc),
-                order=self.grid.order + 1,
-            ),
+            tile=(th // 2, tw // 2, tc),
+            pool=self.pool * 2,
         )
 
     def __eq__(self, rhs) -> bool:
-        return (type(rhs) is _Level and self.grid.memo is rhs.grid.memo
+        return (type(rhs) is _Level and self.memo is rhs.memo
                 and self.shape == rhs.shape)
 
     def __hash__(self) -> int:
-        return hash(self.grid.memo) & hash(self.shape)
+        return hash(self.memo) & hash(self.shape)
 
     @shared_call  # Thread safety
-    def _get_tile(self, loc: tuple[int, ...]) -> _U8 | None:
+    def _get_tile(self, *loc: int) -> _U8 | None:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        cache = self.cache
-        key = (-self.index, -self.grid.order, *loc)
+        lo, hi = self.spans[loc].tolist()
+        if lo == hi:  # If nothing to read, don't read
+            return None
 
-        if (obj := cache[key]) is _empty:
-            cache[key] = obj = self.grid[loc]
-        return obj
+        key = (*self.shape, *loc)
+        if (im := self.cache[key]) is None:  # Cache miss
+
+            # Read tile from disk
+            im = self.decode(self.memo[lo:hi])
+
+            # Resize if level is pooled
+            th, tw = self.tile[:2]
+            if im.shape[:2] != (th, tw):
+                if self.pool > 2:
+                    im = cv2.resize(im, (th, tw), interpolation=cv2.INTER_AREA)
+                else:
+                    im = cv2.resize(im, (th, tw))
+
+            self.cache[key] = im  # type: ignore
+        return im  # type: ignore
 
     def crop(self, *loc: slice) -> _U8:
-        _, _, _, *tile, spp = self.grid.shape
+        *tile, spp = self.tile
 
         # (y/x lo/hi)
         box = np.array([(s.start, s.stop) for s in loc])
@@ -432,7 +424,7 @@ class _Level(ImageLevel, _BaseImage):
             *map(self._make_index, box[:, 0], bmin, bmax, tile))
 
         parts = [
-            self._get_tile((y, x, 0))
+            self._get_tile(y, x, 0)
             for y, x in product(*(ids.tolist() for ids in iloc))
         ]
 
@@ -538,11 +530,9 @@ class Tiff(Driver):
         tile = tags.tile_shape
 
         if tile is None:  # Not tiled
-            return _Image(shape, index, tags.icc, self, head)
+            return _Image(shape, tags.icc, self, head, index)
 
-        tile_grid_shape = *(len(range(0, s, t))
-                            for s, t in zip(shape, tile)), *tile
-        spans = tags.tile_spans(tile_grid_shape)
+        spans = tags.tile_spans(shape, tile)
 
         # Aperio can choke on non-L0 levels. Read those from L0 to fix.
         # `openslide` does this for us, delegate to it.
@@ -556,9 +546,8 @@ class Tiff(Driver):
                                   _Compression.JPEG2000_YUV):
             decoder = imagecodecs.jpeg2k_decode
 
-        grid = _TileGrid(self._memo, spans, tile_grid_shape, decoder)
-
-        return _Level(shape, index, tags.icc, grid, self.cache, bg_color)
+        return _Level(shape, tags.icc, self._memo, spans, tile, decoder,
+                      self.cache, bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
@@ -566,11 +555,6 @@ class Tiff(Driver):
 
 
 # ------------------------------- tile caching -------------------------------
-class _Empty(Enum):
-    empty = 0
-
-
-_empty: Literal[_Empty.empty] = _Empty.empty
 
 
 @dataclass(repr=False, slots=True)
@@ -578,21 +562,20 @@ class _CacheZYXC:
     lock: Lock = field(default_factory=Lock, repr=False)
     used: int = 0
     keys: list[tuple] = field(default_factory=list, repr=False)
-    # IYXC -> (size, buf | None)
-    buf: dict[tuple, tuple[int, _U8 | None]] = field(
-        default_factory=dict, repr=False)
+    # IYXC -> (size, buf)
+    buf: dict[tuple, tuple[int, _U8]] = field(default_factory=dict, repr=False)
 
     def __repr__(self) -> str:
         return (f'{type(self).__name__}'
                 f'(used={si_bin(self.used)}, items={len(self.buf)})')
 
-    def __getitem__(self, key: tuple) -> _U8 | None | Literal[_Empty.empty]:
+    def __getitem__(self, key: tuple) -> _U8 | None:
         with self.lock:
             if e := self.buf.get(key):
                 return e[1]
-        return _empty
+        return None
 
-    def __setitem__(self, key: tuple, obj: _U8 | None):
+    def __setitem__(self, key: tuple, obj: _U8) -> None:
         if not (capacity := env.BIPL_TILE_CACHE):
             return
         if (size := sizeof(obj)) > capacity:
