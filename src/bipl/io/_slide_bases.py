@@ -47,8 +47,6 @@ class Image:
 
 @dataclass(frozen=True)
 class ImageLevel(Image):
-    mpp: float | None
-
     @final
     @property
     def key(self) -> None:
@@ -87,13 +85,12 @@ class ImageLevel(Image):
 
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
-        mpp = base.mpp / scale if base.mpp else None
         if scale > 0.5:  # Downscale to less then 2x, or upsample
-            return ProxyLevel((h, w, c), mpp, scale, base)
+            return ProxyLevel((h, w, c), scale, base)
 
         downsample = 2 ** (int(1 / scale).bit_length() - 1)
         r_tile = max(_MIN_TILE // downsample, 1)
-        return TiledProxyLevel((h, w, c), mpp, scale, base, downsample, r_tile)
+        return TiledProxyLevel((h, w, c), scale, base, downsample, r_tile)
 
     def octave(self) -> 'ImageLevel | None':
         return None
@@ -130,7 +127,7 @@ class ImageLevel(Image):
         pad: int = 0,
     ) -> '_LambdaLevel':
         # _LambdaLevel is not subclass of _LambdaImage
-        return _LambdaLevel(self.shape, self.mpp, self, fn, pad)
+        return _LambdaLevel(self.shape, self, fn, pad)
 
 
 @dataclass(frozen=True)
@@ -211,6 +208,8 @@ class TiledProxyLevel(ProxyLevel):
 
 
 class Driver:
+    mpp: float | None
+
     @final
     @classmethod
     def register(cls, regex: str):

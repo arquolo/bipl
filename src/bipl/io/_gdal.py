@@ -111,8 +111,7 @@ class Gdal(Driver):
             b if index == 0 else b.GetOverview(index - 1) for b in self._bands)
 
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
-        mpp = self.mpp if index == 0 else None
-        return _Level(shape, mpp, self, bands)
+        return _Level(shape, self, bands)
 
     def keys(self) -> list[str]:
         return []  # TODO: fill if GDAL can detect auxilary images

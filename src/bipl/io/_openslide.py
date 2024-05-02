@@ -260,9 +260,8 @@ class Openslide(Driver):
         if downsample <= 0:
             raise ValueError(f'Invalid level downsample: {downsample}')
 
-        mpp = self.mpp if index == 0 else None
         downsample = round2(downsample)
-        return _Level((h.value, w.value, 3), mpp, downsample, index, self)
+        return _Level((h.value, w.value, 3), downsample, index, self)
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)

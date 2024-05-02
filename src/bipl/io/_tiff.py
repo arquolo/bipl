@@ -391,7 +391,6 @@ class _Level(ImageLevel, _BaseImage):
                 shape=(*gshape, th // 2, tw // 2, tc),
                 order=self.grid.order + 1,
             ),
-            mpp=self.mpp * 2 if self.mpp is not None else None,
         )
 
     def __eq__(self, rhs) -> bool:
@@ -559,8 +558,7 @@ class Tiff(Driver):
 
         grid = _TileGrid(self._memo, spans, tile_grid_shape, decoder)
 
-        return _Level(shape, index, tags.icc, self.mpp, grid, self.cache,
-                      bg_color)
+        return _Level(shape, index, tags.icc, grid, self.cache, bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
