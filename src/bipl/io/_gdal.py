@@ -47,7 +47,6 @@ def _fix_if_url(s: str, /) -> str:
 
 @dataclass(frozen=True)
 class _Level(ImageLevel):
-    index: int
     g: 'Gdal'
     bands: tuple[gdal.Band, ...]
 
@@ -63,7 +62,7 @@ class _Level(ImageLevel):
         chw = np.empty((c, h, w), 'u1')
 
         with self.g.lock:
-            for b, hw in zip(self.bands, np.split(chw, c, 0)):
+            for b, hw in zip(self.bands, chw[:, None, :, :]):
                 gdal_array.BandReadAsArray(b, x0, y0, w, h, buf_obj=hw)
 
         # TODO: add pad if necessary
@@ -113,7 +112,7 @@ class Gdal(Driver):
 
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
         mpp = self.mpp if index == 0 else None
-        return _Level(shape, mpp, index, self, bands)
+        return _Level(shape, mpp, self, bands)
 
     def keys(self) -> list[str]:
         return []  # TODO: fill if GDAL can detect auxilary images

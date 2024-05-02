@@ -110,7 +110,8 @@ class ImageLevel(Image):
         out_shape = (box @ [-1, 1]).tolist()
         return box, valid_box, out_shape
 
-    def _expand(self, rgb: np.ndarray, valid_box: np.ndarray, box: np.ndarray,
+    @staticmethod
+    def _expand(rgb: np.ndarray, valid_box: np.ndarray, box: np.ndarray,
                 bg_color: np.ndarray) -> np.ndarray:
         offsets = np.abs(valid_box - box)
         if offsets.any():
