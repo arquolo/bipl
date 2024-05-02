@@ -23,7 +23,7 @@ def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
     if not prob.size:
         return np.empty((h, w, 3), dtype='u1')
 
-    hue = prob.argmax(-1).astype('u1')
+    hue = prob.argmax(-1).astype('u1')  # NOTE: valid only for simple Indexer
     value = prob.max(-1)
     if value.dtype != 'u1':
         value *= 255
@@ -43,8 +43,15 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
     """Returns trapezional window kernel to apply stiching"""
     if overlap == 0:
         raise ValueError('not applicable for overlap 0')
-    pad = np.linspace(0, 1, overlap + 2)[1:-1]  # strip initial 0 and final 1
-    return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
+
+    ramp = np.arange(1, overlap + 1).astype('f4')
+    ramp /= overlap + 1
+
+    r = np.empty(step + overlap, dtype='f4')
+    r[:overlap] = ramp
+    r[overlap:step] = 1
+    r[step:] = ramp[::-1]
+    return r
 
 
 def normalize_loc(loc: Sequence[slice] | slice,
