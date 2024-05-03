@@ -207,6 +207,10 @@ def rescale_crop(a: NumpyLike,
 
     lo_f, hi_f = np.multiply(box, scale, dtype='f4').T
 
+    loc = *(slice(floor(lo_), ceil(hi_)) for lo_, hi_ in zip(lo_f, hi_f)),
+    if not env.BIPL_SUBPIX:
+        return resize(padslice(a, *loc), (h, w))
+
     # Extra margin to accomodate interpolation kernel
     # 2x2 (0 extra) - nearest (0), bilinear (1), area (3)
     # 4x4 (1 extra) - bicubic (2)
@@ -214,9 +218,8 @@ def rescale_crop(a: NumpyLike,
     eps = (0, 0, 1, 0, 3)[interpolation]
 
     # Tight slice to have all necessary pixels
-    loc = tuple(
-        slice(*np.clip([floor(lo_) - eps, ceil(hi_) + eps], 0, size))
-        for lo_, hi_, size in zip(lo_f, hi_f, a.shape))
+    loc = *(slice(*np.clip([s.start - eps, s.stop + eps], 0, size))
+            for s, size in zip(loc, a.shape)),
     r = a[loc]
     if not r.size:  # 0-size tight slice
         return np.zeros((h, w, *a.shape[2:]), a.dtype)

@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from bipl import env
-from bipl.ops import Tile, get_fusion, normalize_loc, resize
+from bipl.ops import Tile, get_fusion, normalize_loc, rescale_crop, resize
 
 if TYPE_CHECKING:
     from ._util import Icc
@@ -85,12 +85,22 @@ class ImageLevel(Image):
 
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
-        if scale > 0.5:  # Downscale to less then 2x, or upsample
-            return ProxyLevel((h, w, c), scale, base)
+        if scale <= 0.5:  # Downscale to more then 2x
 
-        downsample = 2 ** (int(1 / scale).bit_length() - 1)
-        r_tile = max(_MIN_TILE // downsample, 1)
-        return TiledProxyLevel((h, w, c), scale, base, downsample, r_tile)
+            # NOTE: to use this datapath we must
+            # - have 4^k downsamples (seen only in SVS)
+            # - fail `octave()` call - always succedes unless SVS is choked
+            #   (0s in tile sizes)
+            downsample = 2 ** (int(1 / scale).bit_length() - 1)
+            r_tile = max(_MIN_TILE // downsample, 1)
+            bh, bw, bc = base.shape
+            bh, bw = ((bh + downsample - 1) // downsample,
+                      (bw + downsample - 1) // downsample)
+
+            scale *= downsample
+            base = TiledProxyLevel((bh, bw, bc), base, downsample, r_tile)
+
+        return ProxyLevel((h, w, c), scale, base)
 
     def octave(self) -> 'ImageLevel | None':
         return None
@@ -161,33 +171,27 @@ class ProxyLevel(ImageLevel):
     scale: float
     base: ImageLevel
 
-    def _get_loc(self, *src_loc: slice) -> np.ndarray:
-        return self.base.crop(*src_loc)
-
     def crop(self, *loc: slice) -> np.ndarray:
-        src_loc = *[
-            # TODO: round/ceil/floor ?
-            slice(round(s.start / self.scale), round(s.stop / self.scale))
-            for s in loc
-        ],
-        image = self._get_loc(*src_loc)
-
-        h, w = ((s.stop - s.start) for s in loc)
-        return resize(image, (h, w))
+        return rescale_crop(
+            self.base, *loc, scale=1 / self.scale, interpolation=3)
 
 
 @dataclass(frozen=True)
-class TiledProxyLevel(ProxyLevel):
+class TiledProxyLevel(ImageLevel):
+    base: ImageLevel
     downsample: int
     r_tile: int
 
-    def _get_loc(self, *src_loc: slice) -> np.ndarray:
-        s_start = [s.start for s in src_loc]
-        s_shape = *(s.stop - s.start for s in src_loc),
-        if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
-            return super()._get_loc(*src_loc)
+    def crop(self, *loc: slice) -> np.ndarray:
+        s_start = [s.start * self.downsample for s in loc]
 
-        r_shape = *(ceil(size / self.downsample) for size in s_shape),
+        r_shape = *(s.stop - s.start for s in loc),
+        s_shape = *(size * self.downsample for size in r_shape),
+        if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
+            s_loc = *(slice(s.start * self.downsample,
+                            s.stop * self.downsample) for s in loc),
+            return resize(self.base.crop(*s_loc), r_shape[:2])
+
         r_tile = self.r_tile
         s_tile = r_tile * self.downsample
 

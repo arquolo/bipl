@@ -13,7 +13,7 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl.ops import normalize_loc, resize
+from bipl.ops import normalize_loc, rescale_crop
 
 from ._openslide import Openslide
 from ._slide_bases import REGISTRY, Driver, Image, ImageLevel
@@ -273,10 +273,10 @@ class Slide:
             scale = self.mpp_or_error() / mpp
 
         ds, lvl = self.best_level_for(1 / scale, tol=tol)
-        loc = *(slice(int(c / ds), int((c + size / scale) / ds))
-                for c, size in zip(z0_yx_offset, dsize)),
-        image = lvl.crop(*loc)
-        return resize(image, dsize)
+
+        yx_offset = *(int(c * scale) for c in z0_yx_offset),
+        loc = *(slice(c, c + size) for c, size in zip(yx_offset, dsize)),
+        return rescale_crop(lvl, *loc, scale=1 / ds / scale, interpolation=3)
 
     def extra(self, name: str) -> np.ndarray | None:
         if im := self.extras.get(name):

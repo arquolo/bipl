@@ -37,6 +37,7 @@ class Env(BaseSettings):
     # - Shifts image by 1/2 of pixel on each step.
     # TODO: implement [1 3 3 1] filtering
     BIPL_DOWN: Literal['area', 'box', 'gauss'] = 'gauss'  # Downsampling mode
+    BIPL_SUBPIX: bool = False  # Subpixel downsampling
 
     BIPL_TILE_POOL_SIZE: int = 64_000_000  # Min resolution for tiled pooling
     BIPL_ICC: bool = False  # Apply image color correction
