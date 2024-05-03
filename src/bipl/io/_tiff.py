@@ -21,7 +21,7 @@ from enum import Enum
 from heapq import heappop, heappush
 from itertools import product
 from threading import Lock
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import cv2
 import imagecodecs
@@ -237,6 +237,22 @@ class _Tags:
 
         return np.stack((tbs, tbs + tbc), -1)
 
+    def get_decoder(self) -> Callable[[bytes], _U8]:
+        size = c_int()
+        ptr = c_char_p()
+        if (self.compression is _Compression.JPEG and TIFF.TIFFGetField(
+                self._ptr, _Tag.JPEG_TABLES, byref(size), byref(ptr))
+                and size.value > 4):
+            jpt = string_at(ptr, size.value)
+            # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
+            return _JptDecoder(jpt, self.color.name)
+
+        if self.compression in (_Compression.JPEG2000_RGB,
+                                _Compression.JPEG2000_YUV):
+            return imagecodecs.jpeg2k_decode
+
+        return imagecodecs.imread  # type: ignore
+
     def vendor_properties(self) -> tuple[str, list[str], dict[str, str]]:
         description = self._get_str(270)
 
@@ -343,7 +359,7 @@ class _JptDecoder:
     jpt: bytes = field(repr=False)
     color: str | None
 
-    def __call__(self, buf: Any) -> _U8:
+    def __call__(self, buf: bytes) -> _U8:
         return imagecodecs.jpeg_decode(
             buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB')
 
@@ -353,7 +369,7 @@ class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: npt.NDArray[np.uint64] = field(repr=False)
     tile: tuple[int, ...]
-    decode: Callable[[Any], _U8]
+    decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
     fill: _U8
     pool: int = 1
@@ -399,9 +415,9 @@ class _Level(ImageLevel, _BaseImage):
             th, tw = self.tile[:2]
             if im.shape[:2] != (th, tw):
                 if self.pool > 2:
-                    im = cv2.resize(im, (th, tw), interpolation=cv2.INTER_AREA)
+                    im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
                 else:
-                    im = cv2.resize(im, (th, tw))
+                    im = cv2.resize(im, (tw, th))
 
             self.cache[key] = im  # type: ignore
         return im  # type: ignore
@@ -516,16 +532,6 @@ class Tiff(Driver):
             raise ValueError('Unsupported YUV subsampling: '
                              f'{tags.subsampling}')
 
-        # Compression and JPEG tables
-        jpt = b''
-        count = c_int()
-        ptr = c_char_p()
-        if (tags.compression is _Compression.JPEG and TIFF.TIFFGetField(
-                self._ptr, _Tag.JPEG_TABLES, byref(count), byref(ptr))
-                and count.value > 4):
-            jpt = string_at(ptr, count.value)
-            # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
-
         shape = tags.image_shape
         tile = tags.tile_shape
 
@@ -539,15 +545,8 @@ class Tiff(Driver):
         if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
             raise ValueError('Found 0s in tile size table')
 
-        decoder: Callable[[Any], _U8] = imagecodecs.imread  # type: ignore
-        if tags.compression is _Compression.JPEG and jpt:
-            decoder = _JptDecoder(jpt, tags.color.name)
-        elif tags.compression in (_Compression.JPEG2000_RGB,
-                                  _Compression.JPEG2000_YUV):
-            decoder = imagecodecs.jpeg2k_decode
-
-        return _Level(shape, tags.icc, self._memo, spans, tile, decoder,
-                      self.cache, bg_color)
+        return _Level(shape, tags.icc, self._memo, spans, tile,
+                      tags.get_decoder(), self.cache, bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
