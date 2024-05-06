@@ -253,6 +253,19 @@ class _Tags:
 
         return imagecodecs.imread  # type: ignore
 
+    def _bg_color(self, meta: dict) -> _U8:
+        if c := meta.get('ScanWhitePoint'):
+            return np.array(int(c), 'u1')
+
+        bg_hex = b'FFFFFF'
+        bg_color_ptr = c_char_p()
+        # TODO: find sample file to test this path. Never reached
+        if TIFF.TIFFGetField(self._ptr, _Tag.BACKGROUND_COLOR,
+                             byref(bg_color_ptr)):
+            bg_hex = string_at(bg_color_ptr, 3)
+            # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
+        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
+
     def vendor_properties(self) -> tuple[str, list[str], dict[str, str]]:
         description = self._get_str(270)
 
@@ -301,11 +314,12 @@ class _Tags:
 
     def properties(
         self,
-    ) -> tuple[str, list[str], dict[str, str], float | None]:
+    ) -> tuple[str, list[str], dict[str, str], float | None, _U8]:
         """Extracts: (vendor, header, metadata, mpp)"""
         vendor, header, meta = self.vendor_properties()
         mpp = self._get_mpp(vendor, meta)
-        return vendor, header, meta, mpp
+        bg_color = self._bg_color(meta)
+        return vendor, header, meta, mpp, bg_color
 
 
 # ------------------ image, level & opener implementations -------------------
@@ -493,7 +507,7 @@ class Tiff(Driver):
 
         # Initially directory 0 is active
         tags = _Tags(self._ptr)
-        self.vendor, _, self._meta, self.mpp = tags.properties()
+        self.vendor, _, self._meta, self.mpp, self.bg_color = tags.properties()
 
         with open(path, 'rb') as f:
             self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -512,20 +526,8 @@ class Tiff(Driver):
     def __len__(self) -> int:
         return TIFF.TIFFNumberOfDirectories(self._ptr)
 
-    def _bg_color(self) -> _U8:
-        bg_hex = b'FFFFFF'
-        bg_color_ptr = c_char_p()
-        # TODO: find sample file to test this path. Never reached
-        if TIFF.TIFFGetField(self._ptr, _Tag.BACKGROUND_COLOR,
-                             byref(bg_color_ptr)):
-            bg_hex = string_at(bg_color_ptr, 3)
-            # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
-        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
-
     def _get(self, index: int) -> Image | None:
         tags = _Tags(self._ptr)
-
-        bg_color = self._bg_color()
         _, head, _ = tags.vendor_properties()
 
         if tags.color is _ColorSpace.YCBCR and tags.subsampling != (2, 2):
@@ -546,7 +548,7 @@ class Tiff(Driver):
             raise ValueError('Found 0s in tile size table')
 
         return _Level(shape, tags.icc, self._memo, spans, tile,
-                      tags.get_decoder(), self.cache, bg_color)
+                      tags.get_decoder(), self.cache, self.bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
