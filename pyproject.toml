@@ -12,10 +12,10 @@ artifacts = ["*.dll"]  # only wheel keeps DLLs
 
 [project]
 name = "bipl"
-version = "0.5.7"
+version = "0.5.8"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 keywords = [
     "medical", "images", "pathology", "whole-slide", "wsi", "pyramid", "slide",
@@ -34,7 +34,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
