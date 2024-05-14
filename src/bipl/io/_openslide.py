@@ -245,10 +245,14 @@ class Openslide(Driver):
 
     def _get_metadata(self) -> dict[str, str]:
         names = OSD.openslide_get_property_names(self.ptr)
-        return {
-            name.decode(): value.decode() for name in _ntas_to_iter(names)
-            if (value := OSD.openslide_get_property_value(self.ptr, name))
-        }
+        r = {}
+        for name in _ntas_to_iter(names):
+            if (value := OSD.openslide_get_property_value(self.ptr, name)):
+                try:
+                    r[name.decode()] = value.decode()
+                except UnicodeDecodeError:
+                    continue
+        return r
 
     def __len__(self) -> int:
         return OSD.openslide_get_level_count(self.ptr)

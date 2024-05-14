@@ -52,35 +52,38 @@ def _make_key(s: str, tab: Mapping[int, str | None]) -> tuple[str | int, ...]:
 # ---------------------------- aperio description ----------------------------
 
 
-def is_aperio(s: str) -> bool:
-    return s.startswith('Aperio')
+def get_aperio_properties(description: str,
+                          index: int = 0) -> tuple[str, dict[str, str]] | None:
+    if index == 0 and not description.startswith('Aperio'):
+        return None
+    header, *kv_pairs = description.split('|')
 
-
-def parse_aperio_description(s: str) -> tuple[list[str], dict[str, str]]:
-    header, *kv_pairs = s.split('|')
-
-    head = [s.strip() for s in header.splitlines()]
+    header = '\n'.join(s.strip() for s in header.splitlines())
 
     meta = {}
-    for s in kv_pairs:
-        tags = s.split('=', 1)
-        if len(tags) == 2:
-            meta[tags[0].strip()] = tags[1].strip()
-        else:
-            raise ValueError(f'Unparseable line in description: {s!r}')
+    for i, kv in enumerate(kv_pairs):
+        match kv.split('=', 1):
+            case [str(k), str(v)]:
+                meta[k.strip()] = v.strip()
+            case ['']:
+                continue
+            case _:
+                raise ValueError(f'Cannot parse TIFF description line #{i}: '
+                                 f'{kv!r}, {description!r}')
 
-    return head, meta
+    return header, meta
 
 
 # ----------------------------- xml description ------------------------------
 
 
-def get_ventana_iscan(s: bytes) -> dict[str, str]:
+def get_ventana_properties(s: bytes, index: int = 0) -> dict[str, str]:
     t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
-    root = t.find('iScan')
-    if root is None:
+    if index == 0:
+        if (root := t.find('iScan')) is not None:
+            return dict(root.items())
         return {}
-    return dict(root.items())
+    return {'xmp': s.decode()}
 
 
 def parse_xml(s: str,
@@ -109,7 +112,7 @@ def _gdal_parse_description(meta: Mapping[str, str]) -> dict[str, Any]:
     desc = meta.get('TIFFTAG_IMAGEDESCRIPTION')
     if not desc:
         return {}
-    if is_aperio(desc):
+    if get_aperio_properties(desc):
         raise ValueError('Aperio is not yet supported by GDAL driver')
     try:
         props = parse_xml(desc)

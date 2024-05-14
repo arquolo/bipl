@@ -34,8 +34,8 @@ from bipl._env import env
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel
-from ._util import (Icc, get_ventana_iscan, is_aperio,
-                    parse_aperio_description, parse_xml, unflatten)
+from ._util import (Icc, get_aperio_properties, get_ventana_properties,
+                    parse_xml, unflatten)
 
 _T = TypeVar('_T')
 _U8 = npt.NDArray[np.uint8]
@@ -105,6 +105,8 @@ class _Planarity(Enum):
 
 
 class _Tag:  # noqa: PIE795,RUF100
+    DESCRIPTION = 270
+    MAKE = 271
     TILE_OFFSETS = 324
     TILE_BYTE_COUNTS = 325
     JPEG_TABLES = 347
@@ -238,20 +240,22 @@ class _Tags:
         return np.stack((tbs, tbs + tbc), -1)
 
     def get_decoder(self) -> Callable[[bytes], _U8]:
-        size = c_int()
-        ptr = c_char_p()
-        if (self.compression is _Compression.JPEG and TIFF.TIFFGetField(
-                self._ptr, _Tag.JPEG_TABLES, byref(size), byref(ptr))
-                and size.value > 4):
-            jpt = string_at(ptr, size.value)
-            # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
-            return _JptDecoder(jpt, self.color.name)
+        match self.compression:
+            case _Compression.JPEG:
+                jpt = None
+                size = c_int()
+                ptr = c_char_p()
+                if (TIFF.TIFFGetField(self._ptr, _Tag.JPEG_TABLES, byref(size),
+                                      byref(ptr)) and size.value > 4):
+                    jpt = string_at(ptr, size.value)
+                    # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
+                return _JpegDecoder(jpt, self.color.name)
 
-        if self.compression in (_Compression.JPEG2000_RGB,
-                                _Compression.JPEG2000_YUV):
-            return imagecodecs.jpeg2k_decode
+            case _Compression.JPEG2000_RGB | _Compression.JPEG2000_YUV:
+                return imagecodecs.jpeg2k_decode
 
-        return imagecodecs.imread  # type: ignore
+            case _:
+                return imagecodecs.imread  # type: ignore
 
     def _bg_color(self, meta: dict) -> _U8:
         if c := meta.get('ScanWhitePoint'):
@@ -266,34 +270,53 @@ class _Tags:
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
-    def vendor_properties(self) -> tuple[str, list[str], dict[str, str]]:
-        description = self._get_str(270)
+    def vendor_props(
+        self,
+        vendor: str,
+        index: int = 0,
+        description: str | None = None,
+    ) -> tuple[str, dict[str, str]] | None:
+        if description is None:
+            description = self._get_str(_Tag.DESCRIPTION)
 
-        # BIF (Ventana/Roche)
-        xmp_size = c_int()
-        xmp_ptr = c_char_p()
-        if TIFF.TIFFGetField(self._ptr, _Tag.XMP, byref(xmp_size),
-                             byref(xmp_ptr)) and xmp_size.value > 0:
-            xmp = string_at(xmp_ptr, xmp_size.value)
-            if meta := get_ventana_iscan(xmp):
-                return 'ventana', [description], meta
+        match vendor:
+            case 'ventana':  # BIF of Roche
+                xmp_size = c_int()
+                xmp_ptr = c_char_p()
+                if TIFF.TIFFGetField(self._ptr, _Tag.XMP, byref(xmp_size),
+                                     byref(xmp_ptr)) and xmp_size.value > 0:
+                    xmp = string_at(xmp_ptr, xmp_size.value)
+                    if meta := get_ventana_properties(xmp, index):
+                        return description, meta
+                if index != 0:
+                    return description, {}
 
-        # SVS (Aperio)
-        if is_aperio(description):
-            header, meta = parse_aperio_description(description)
-            return 'aperio', header, meta
+            case 'aperio':  # SVS
+                return get_aperio_properties(description, index)
 
-        # NDPI (Hamamatsu)
-        if self._get_str(271) == 'Hamamatsu':
-            raise ValueError('TIFF: Hamamatsu is not yet supported')
+            case 'hamamatsu':  # NDPI
+                if self._get_str(_Tag.MAKE) == 'Hamamatsu':
+                    raise ValueError('TIFF: Hamamatsu is not yet supported')
 
-        # Generic TIFF
-        try:
-            meta = unflatten(parse_xml(description))
-        except Exception:  # noqa: BLE001
-            return '', [description], {}
-        else:
-            return '', [], meta
+            case 'generic':  # TIFF
+                try:
+                    meta = unflatten(parse_xml(description))
+                except Exception:  # noqa: BLE001
+                    return description, {}
+                else:
+                    return '', meta
+
+        return None
+
+    def vendor_properties(self) -> tuple[str, str, dict[str, str]]:
+        description = self._get_str(_Tag.DESCRIPTION)
+
+        for vendor in ('ventana', 'aperio', 'hamamatsu', 'generic'):
+            if r := self.vendor_props(vendor, 0, description):
+                header, meta = r
+                return vendor, header, meta
+
+        raise ValueError('Unknown vendor')
 
     def _get_mpp(self, vendor: str, meta: dict) -> float | None:
         """Extract MPP, um/pixel, phisical pixel size"""
@@ -312,9 +335,7 @@ class _Tags:
             return float(mpp_s)
         return None
 
-    def properties(
-        self,
-    ) -> tuple[str, list[str], dict[str, str], float | None, _U8]:
+    def properties(self) -> tuple[str, str, dict[str, str], float | None, _U8]:
         """Extracts: (vendor, header, metadata, mpp)"""
         vendor, header, meta = self.vendor_properties()
         mpp = self._get_mpp(vendor, meta)
@@ -337,17 +358,22 @@ class _BaseImage(Image):
 @dataclass(frozen=True)
 class _Image(_BaseImage):
     tiff: 'Tiff'
-    head: list[str]
+    head: str
     index: int
 
     @property
     def key(self) -> str | None:
         if self.tiff.vendor == 'aperio' and self.index == 1:
             return 'thumbnail'
-        if self.tiff.vendor == 'ventana' and self.index == 0:
-            return 'label'
+        if self.tiff.vendor == 'ventana':
+            match self.head:
+                case 'Thumbnail':
+                    return 'thumbnail'
+                case 'Label Image' | 'Label_Image':
+                    return 'macro'
+            return None
         for key in ('label', 'macro'):
-            if any(key in s for s in self.head):
+            if any(key in s for s in self.head.splitlines()):
                 return key
         return None
 
@@ -369,8 +395,8 @@ class _Image(_BaseImage):
 
 
 @dataclass(frozen=True, slots=True)
-class _JptDecoder:
-    jpt: bytes = field(repr=False)
+class _JpegDecoder:
+    jpt: bytes | None = field(repr=False)
     color: str | None
 
     def __call__(self, buf: bytes) -> _U8:
@@ -506,8 +532,9 @@ class Tiff(Driver):
         self.cache = _CacheZYXC()
 
         # Initially directory 0 is active
-        tags = _Tags(self._ptr)
-        self.vendor, _, self._meta, self.mpp, self.bg_color = tags.properties()
+        self._tags = _Tags(self._ptr)
+        self.vendor, self._head, self._meta, self.mpp, self._bg_color \
+            = self._tags.properties()
 
         with open(path, 'rb') as f:
             self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -527,8 +554,15 @@ class Tiff(Driver):
         return TIFF.TIFFNumberOfDirectories(self._ptr)
 
     def _get(self, index: int) -> Image | None:
-        tags = _Tags(self._ptr)
-        _, head, _ = tags.vendor_properties()
+        if index == 0:
+            tags = self._tags
+            head = self._head
+        else:
+            tags = _Tags(self._ptr)
+            r = tags.vendor_props(self.vendor, index)
+            if not r:
+                raise ValueError('File directories are from different vendors')
+            head, _ = r
 
         if tags.color is _ColorSpace.YCBCR and tags.subsampling != (2, 2):
             raise ValueError('Unsupported YUV subsampling: '
@@ -548,7 +582,7 @@ class Tiff(Driver):
             raise ValueError('Found 0s in tile size table')
 
         return _Level(shape, tags.icc, self._memo, spans, tile,
-                      tags.get_decoder(), self.cache, self.bg_color)
+                      tags.get_decoder(), self.cache, self._bg_color)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
