@@ -116,8 +116,11 @@ class Slide:
         for idx in range(num_images):
             match driver[idx]:
                 case ImageLevel(shape=shape) as im:
-                    levels[round2(levels[1].shape[0]
-                                  / shape[0]) if levels else 1] = im
+                    if levels:
+                        ds = round2(levels[1].shape[0] / shape[0])
+                        levels[ds] = im.fallback(levels[1], ds)
+                    else:
+                        levels[1] = im
                 case Image(key=str(key)) as im:
                     extras[key] = im
                 case _:

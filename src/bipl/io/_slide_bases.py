@@ -105,6 +105,9 @@ class ImageLevel(Image):
     def octave(self) -> 'ImageLevel | None':
         return None
 
+    def fallback(self, lv: 'ImageLevel', ds: int) -> 'ImageLevel':
+        return self
+
     def _unpack_2d_loc(
         self,
         *slices: slice,

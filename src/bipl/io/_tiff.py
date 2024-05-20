@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from ctypes import (POINTER, addressof, byref, c_char_p, c_float, c_int,
                     c_ubyte, c_uint16, c_uint32, c_uint64, c_void_p, string_at)
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from heapq import heappop, heappush
 from itertools import product
@@ -33,7 +33,7 @@ from numpy.lib.stride_tricks import as_strided
 from bipl._env import env
 
 from ._libs import load_library
-from ._slide_bases import Driver, Image, ImageLevel
+from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel
 from ._util import (Icc, get_aperio_properties, get_ventana_properties,
                     parse_xml, unflatten)
 
@@ -404,7 +404,7 @@ class _JpegDecoder:
             buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB')
 
 
-@dataclass(frozen=True)
+@dataclass(eq=False, frozen=True)
 class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: npt.NDArray[np.uint64] = field(repr=False)
@@ -412,7 +412,7 @@ class _Level(ImageLevel, _BaseImage):
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
     fill: _U8
-    pool: int = 1
+    pool: int
 
     def octave(self) -> '_Level | None':
         th, tw, tc = self.tile
@@ -428,38 +428,44 @@ class _Level(ImageLevel, _BaseImage):
         )
 
     def __eq__(self, rhs) -> bool:
-        return (type(rhs) is _Level and self.memo is rhs.memo
+        return (type(self) is type(rhs) and self.memo is rhs.memo
                 and self.shape == rhs.shape)
 
     def __hash__(self) -> int:
-        return hash(self.memo) & hash(self.shape)
+        return hash(self.memo) ^ hash(self.shape)
 
     @shared_call  # Thread safety
     def _get_tile(self, *loc: int) -> _U8 | None:
+        lo, hi = self.spans[loc].tolist()
+        if lo == hi:  # If nothing to read, don't read
+            return None
+        return self._get_tile_raw(lo, hi, *loc)
+
+    def _get_tile_raw(self, lo: int, hi: int, *loc: int) -> _U8:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        lo, hi = self.spans[loc].tolist()
-        if lo == hi:  # If nothing to read, don't read
-            return None
-
         key = (*self.shape, *loc)
-        if (im := self.cache[key]) is None:  # Cache miss
 
-            # Read tile from disk
-            im = self.decode(self.memo[lo:hi])
+        # Cache hit
+        if (im := self.cache[key]) is not None:
+            return im
 
-            # Resize if level is pooled
-            th, tw = self.tile[:2]
-            if im.shape[:2] != (th, tw):
-                if self.pool > 2:
-                    im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
-                else:
-                    im = cv2.resize(im, (tw, th))
+        # Cache miss
+        # Read tile from disk
+        im = self.decode(self.memo[lo:hi])
 
-            self.cache[key] = im  # type: ignore
+        # Resize if level is pooled
+        th, tw = self.tile[:2]
+        if im.shape[:2] != (th, tw):
+            if self.pool > 2:
+                im = cv2.resize(im, (tw, th))
+            else:
+                im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
+
+        self.cache[key] = im  # type: ignore
         return im  # type: ignore
 
     def crop(self, *loc: slice) -> _U8:
@@ -517,7 +523,38 @@ class _Level(ImageLevel, _BaseImage):
         return ids1[:-1], t_crops, o_crops, o_span
 
 
-# FIXME: Get around slides from choked SVS encoder
+@dataclass(eq=False, frozen=True)
+class _AperioLevel(_Level):
+    def fallback(self, lv: ImageLevel, ds: int) -> '_Level':
+        while ds != 1 and (lv_ := lv.octave()):
+            ds //= 2
+            lv = lv_
+        if ds != 1:
+            lv = ProxyLevel(self.shape, 1 / ds, lv)
+
+        if not isinstance(self, _AperioSubLevel):
+            r = {f.name: getattr(self, f.name) for f in fields(self)}
+            return _AperioSubLevel(**r, prev=lv)
+
+        return replace(self, prev=lv)
+
+
+@dataclass(eq=False, frozen=True)
+class _AperioSubLevel(_AperioLevel):
+    prev: ImageLevel
+
+    @time_this
+    @shared_call  # Thread safety
+    def _get_tile(self, *loc: int) -> _U8 | None:
+        lo, hi = self.spans[loc].tolist()
+        if lo == hi:  # Read tile from backup level
+            iy, ix, _ = loc
+            th, tw = self.tile[:2]
+            return self.prev[iy * th:iy * th + th, ix * tw:ix * tw + tw]
+
+        return self._get_tile_raw(lo, hi, *loc)
+
+
 class Tiff(Driver):
     def __init__(self, path: str):
         self._ptr = (
@@ -582,7 +619,7 @@ class Tiff(Driver):
             raise ValueError('Found 0s in tile size table')
 
         return _Level(shape, tags.icc, self._memo, spans, tile,
-                      tags.get_decoder(), self.cache, self._bg_color)
+                      tags.get_decoder(), self.cache, self._bg_color, 1)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
