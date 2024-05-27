@@ -76,6 +76,10 @@ def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
     """
     loc = normalize_loc(loc, a.shape)
 
+    # Nothing to pad
+    if not all(a.shape):
+        return np.zeros([s.stop - s.start for s in loc], a.dtype)
+
     # No need to pad
     if all(0 <= s.start <= s.stop <= size for s, size in zip(loc, a.shape)):
         return a[loc]

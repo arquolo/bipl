@@ -190,6 +190,9 @@ class TiledProxyLevel(ImageLevel):
 
         r_shape = *(s.stop - s.start for s in loc),
         s_shape = *(size * self.downsample for size in r_shape),
+        if not all(s_shape):
+            return np.empty((*r_shape, self.base.shape[2]), self.dtype)
+
         if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
             s_loc = *(slice(s.start * self.downsample,
                             s.stop * self.downsample) for s in loc),
