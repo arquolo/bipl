@@ -44,6 +44,9 @@ class Image:
     def icc(self) -> 'Icc | None':
         return None
 
+    def flip(self) -> 'Image':
+        return self
+
 
 @dataclass(frozen=True)
 class ImageLevel(Image):
@@ -104,6 +107,9 @@ class ImageLevel(Image):
 
     def octave(self) -> 'ImageLevel | None':
         return None
+
+    def flip(self) -> 'ImageLevel':
+        return self
 
     def fallback(self, lv: 'ImageLevel', ds: int) -> 'ImageLevel':
         return self

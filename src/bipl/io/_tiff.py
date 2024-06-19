@@ -349,6 +349,7 @@ class _Tags:
 @dataclass(frozen=True)
 class _BaseImage(Image):
     icc_impl: Icc | None
+    flipped: bool
 
     @property
     def icc(self) -> Icc | None:
@@ -391,7 +392,12 @@ class _Image(_BaseImage):
 
         rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        return np.asarray(rgba[..., :3])
+        im = np.asarray(rgba[..., :3], 'u1')
+        return im.swapaxes(0, 1) if self.flipped else im
+
+    def flip(self) -> '_Image':
+        h, w, c = self.shape
+        return replace(self, shape=(w, h, c), flipped=not self.flipped)
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,6 +415,7 @@ class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: npt.NDArray[np.uint64] = field(repr=False)
     tile: tuple[int, ...]
+    order: str | None
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
     fill: _U8
@@ -464,6 +471,8 @@ class _Level(ImageLevel, _BaseImage):
                 im = cv2.resize(im, (tw, th))
             else:
                 im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
+        if self.flipped:
+            im = im.swapaxes(0, 1)
 
         self.cache[key] = im  # type: ignore
         return im  # type: ignore
@@ -522,6 +531,19 @@ class _Level(ImageLevel, _BaseImage):
 
         return ids1[:-1], t_crops, o_crops, o_span
 
+    def flip(self) -> '_Level':
+        h, w, c = self.shape
+        th, tw, tc = self.tile
+        reorder = {'C': 'F', 'F': 'C', None: None}
+        return replace(
+            self,
+            shape=(w, h, c),
+            flipped=not self.flipped,
+            spans=self.spans.swapaxes(0, 1),
+            tile=(tw, th, tc),
+            order=reorder[self.order],
+        )
+
 
 @dataclass(eq=False, frozen=True)
 class _AperioLevel(_Level):
@@ -556,7 +578,8 @@ class _AperioSubLevel(_AperioLevel):
 
 
 class Tiff(Driver):
-    def __init__(self, path: str):
+    def __init__(self, path: str) -> None:
+        # Open TIFF in read-only (`r`) mode and disable memory mapping (`m`)
         self._ptr = (
             TIFF.TIFFOpenW(path, b'rm') if sys.platform == 'win32' else
             TIFF.TIFFOpen(path.encode(), b'rm'))
@@ -609,21 +632,36 @@ class Tiff(Driver):
         tile = tags.tile_shape
 
         if tile is None:  # Not tiled
-            return _Image(shape, tags.icc, self, head, index)
+            return _Image(shape, tags.icc, False, self, head, index)
 
         spans = tags.tile_spans(shape, tile)
+        order = _detect_tile_order(spans[..., 0])
 
         # Aperio can choke on non-L0 levels. Read those from L0 to fix.
         # `openslide` does this for us, delegate to it.
         if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
             raise ValueError('Found 0s in tile size table')
 
-        return _Level(shape, tags.icc, self._memo, spans, tile,
+        return _Level(shape, tags.icc, False, self._memo, spans, tile, order,
                       tags.get_decoder(), self.cache, self._bg_color, 1)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
             return self._get(index)
+
+
+def _detect_tile_order(start: npt.NDArray[np.integer]) -> str | None:
+    start = start.squeeze().copy()
+    if start.ndim < 2:
+        return 'C'
+
+    for order in ('F', 'C'):
+        a = start.ravel(order)
+        a = a[a > 0]
+        if (a[:-1] < a[1:]).all():
+            return order
+
+    return None
 
 
 # ------------------------------- tile caching -------------------------------
