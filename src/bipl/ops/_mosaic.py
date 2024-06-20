@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, starmap
 from math import ceil
-from typing import Literal
+from typing import Literal, Self, cast
 
 import cv2
 import numpy as np
@@ -119,19 +119,24 @@ class Patches:
     def __iter__(self) -> Iterator[Tile]:
         raise NotImplementedError
 
+    def _patches_from(self, it: Iterable[Tile]) -> 'Patches':
+        return _IterPatches(self.shape, it, len(self))
+
+    def _new_from(self, it: Iterable[Tile]) -> Self:
+        return cast(Self, self._patches_from(it))
+
     def map(self,
             fn: Callable[[np.ndarray], np.ndarray],
             /,
-            max_workers: int = 0) -> 'Patches':
+            max_workers: int = 0) -> Self:
         """
-        Apply function to each patch.
-        Note: change of patch shape besides channel count is forbidden.
+        Apply function to each patch/tile.
+        Note: height/width of patch must not be changed.
         Each patch is HWC-ordered ndarray.
         Supports threading.
         """
-        patch_fn = partial(_apply, fn)
-        patches = map_n(patch_fn, self, max_workers=max_workers)
-        return _IterPatches(self.shape, patches, len(self))
+        return self._new_from(
+            map_n(partial(_apply, fn), self, max_workers=max_workers))
 
     def pool(self, stride: int = 1) -> 'Patches':
         """Resize each patch to desired stride"""
@@ -147,13 +152,11 @@ class Patches:
         """
         TODO: fill docs
         """
-        patches = fn(self)
-        return _IterPatches(self.shape, patches, len(self))
+        return self._patches_from(fn(self))
 
     def strip(self) -> 'Patches':
         """Strip out-of-bounds regions. Produces non-square patches"""
-        it = map(Stripper(self.shape), self)
-        return _IterPatches(self.shape, it, len(self))
+        return self._patches_from(map(Stripper(self.shape), self))
 
     def crop(self) -> 'Patches':
         # TODO: deprecate
@@ -176,9 +179,9 @@ class Patches:
             raise ValueError(f'v_scale should be positive, got: {v_scale}')
         return _ZipView(self, len(self), view, v_scale, interpolation)
 
-    def with_(self, ctx: AbstractContextManager) -> 'Patches':
+    def with_(self, ctx: AbstractContextManager) -> Self:
         """Iterate with context. Reentrant if nested context is reentrant"""
-        return _IterPatches(self.shape, _Scoped(self, ctx), len(self))
+        return self._new_from(_Scoped(self, ctx))
 
 
 @dataclass(frozen=True)
@@ -236,19 +239,8 @@ class Tiles(Patches):
         coverage = (used / total) * (1 + self.m.overlap / self.m.step) ** 2
         return {'cells': f'{used}/{total}', 'coverage': f'{coverage:.0%}'}
 
-    def map(self,
-            fn: Callable[[np.ndarray], np.ndarray],
-            /,
-            max_workers: int = 0) -> 'Tiles':
-        """
-        Apply function to each tile.
-        Note: change of tile shape besides channel count is forbidden.
-        Each tile is HWC-ordered ndarray.
-        Supports threading.
-        """
-        tile_fn = partial(_apply, fn)
-        tiles = map_n(tile_fn, self, max_workers=max_workers)
-        return _IterTiles(self.shape, self.m, self.cells, tiles)
+    def _new_from(self, it: Iterable[Tile]) -> 'Tiles':
+        return _IterTiles(self.shape, self.m, self.cells, it)
 
     def map_batched(self,
                     fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
@@ -267,7 +259,7 @@ class Tiles(Patches):
         batches = map_n(tile_fn, chunks, max_workers=max_workers)
         tiles = chain.from_iterable(batches)
 
-        return _IterTiles(self.shape, self.m, self.cells, tiles)
+        return self._new_from(tiles)
 
     def pool(self, stride: int = 1) -> 'Tiles':
         """Resize each tile to desired stride"""
@@ -280,10 +272,6 @@ class Tiles(Patches):
         m = Mosaic(self.m.step // stride, self.m.overlap // stride)
         shape = *((s + stride - 1) // stride for s in self.shape),
         return _IterTiles(shape, m, self.cells, _Decimated(self, stride))
-
-    def with_(self, ctx: AbstractContextManager) -> 'Tiles':
-        """Iterate with context. Reentrant if nested context is reentrant"""
-        return _IterTiles(self.shape, self.m, self.cells, _Scoped(self, ctx))
 
     def reweight(self) -> 'Tiles':
         """
@@ -439,7 +427,7 @@ class _ArrayTiles(Tiles):
         ilocs = self._ilocs(locs)
         parts = starmap_n(self._get_tile, ilocs, max_workers=self.max_workers)
         if not self.m.overlap:
-            return iter(parts)
+            return parts
 
         rcr = Reconstructor(self.m.overlap, self.cells)
         return map(rcr, parts)

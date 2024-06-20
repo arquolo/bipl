@@ -169,7 +169,7 @@ class BlendCropper:
 
     def _3x3(self, src: Iterable[Tile]) -> Iterator[Tile]:
         last_iy = -1
-        buf = deque[Tile | None]()
+        buf = deque[Tile]()
         ops = defaultdict[NDIndex, list[_Op]](list)
         ov = self.overlap
 
@@ -179,8 +179,8 @@ class BlendCropper:
             assert idx == (iy, ix), f'Unexpected tile index: {idx}'
 
             if iy != last_iy:  # Start/end row
-                buf.append(None)
-                yield from iter(buf.popleft, None)
+                while buf:
+                    yield buf.popleft()
                 last_iy = iy
 
             for op in ops.pop(idx, []):  # full top & left (5)
@@ -201,8 +201,8 @@ class BlendCropper:
                 ops[iy + 1, ix].append(u.send)
                 ops[iy + 1, ix + 1].append(partial(_final_send, u))
 
-        buf.append(None)
-        yield from iter(buf.popleft, None)  # End row
+        while buf:
+            yield buf.popleft()  # End row
 
 
 def _center(pad: int, tile: Tile) -> Tile:
@@ -213,7 +213,7 @@ def _center(pad: int, tile: Tile) -> Tile:
     return Tile((2 * ix, 2 * iy), (y + pad, x + pad), data[pad:-pad, pad:-pad])
 
 
-def _vert_edge(pad: int, buf: deque[Tile | None], left: np.ndarray,
+def _vert_edge(pad: int, buf: deque[Tile], left: np.ndarray,
                tile: Tile) -> tuple[()]:
     # [- - -]    [- - -]
     # [- - X] -> [R - -]
