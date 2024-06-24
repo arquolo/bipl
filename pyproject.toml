@@ -42,7 +42,7 @@ dependencies = [
     "glow~=0.13.5",
     "imagecodecs",
     "lxml",
-    "numpy~=1.21",
+    "numpy ~=1.21, ~=2.0",
     "opencv-python-headless~=4.0",
     "packaging",
     "pillow",
@@ -66,7 +66,7 @@ dev-core = [
     "isort",
     "mypy~=1.7",
     "pytest~=8.0",
-    "ruff~=0.2.2",
+    "ruff~=0.4.9",
     "yapf~=0.40.2",
 ]
 dev = [
@@ -89,7 +89,7 @@ repository = "https://github.com"
 
 [tool.ruff]
 line-length = 79
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -97,6 +97,7 @@ select = [
     "BLE", "COM", "ICN", "INP", "PL", "RSE", "RUF",
     # "FBT", "SLF", "TCH",
     "TRY",
+    "NPY201",
 ]
 ignore = [
     "A003", "B008", "B905", "D1", "D2", "D4", "N812", "S1", "S3",
