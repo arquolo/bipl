@@ -1,5 +1,6 @@
 __all__ = ['Slide']
 
+import importlib
 import os
 import warnings
 from bisect import bisect_right
@@ -15,53 +16,71 @@ from glow import memoize, shared_call, weak_memoize
 from bipl import env
 from bipl.ops import normalize_loc, rescale_crop
 
-from ._openslide import Openslide
-from ._slide_bases import REGISTRY, Driver, Image, ImageLevel
-from ._tiff import Tiff
+from ._slide_bases import Driver, Image, ImageLevel
 from ._util import clahe, round2
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
 
-_gdal_warn = 'GDAL driver was disabled because GDAL was not found. Please '
-if os.name == 'nt':
-    _gdal_warn += ('acquire it manually from '
-                   'https://github.com/cgohlke/geospatial-wheels/releases ')
-else:
-    _gdal_warn += ('ensure that you have "libgdal" in your system, '
-                   '"wheel" in your Python environment'
-                   'and run "pip install gdal==`gdal-config --version`"')
 
-Gdal = None
-if 'gdal' in env.BIPL_DRIVERS:
-    try:
-        from ._gdal import Gdal
-    except ImportError:  # GDAL is not available, disable
-        warn(_gdal_warn, stacklevel=1)
-        env.BIPL_DRIVERS.discard('gdal')
-        os.environ['BIPL_DRIVERS'] = str([*env.BIPL_DRIVERS]).replace("'", '"')
+def _load_drivers() -> None:
+    if os.name == 'nt':
+        gdal_warn = (
+            'Ensure it was properly installed or acquire it manually from '
+            'https://github.com/cgohlke/geospatial-wheels/releases')
+    else:
+        gdal_warn = (
+            'Ensure it was properly installed, and run '
+            '"pip install wheel && pip install gdal==`gdal-config --version`"')
 
-_drv: type[Driver] | None
-for _drv, _regex in [  # LIFO, last driver takes priority
-    (Gdal, r'^.*\.(tif|tiff)$'),
-    (Openslide, r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
-    (Tiff, r'^.*\.(bif|svs|tif|tiff)$'),
-    (Gdal, r'^(/vsicurl.*|(http|https|ftp)://.*)$'),
-]:
-    if _drv is not None and _drv.__name__.lower() in env.BIPL_DRIVERS:
-        _drv.register(_regex)
+    imports = {
+        'openslide': ('._openslide', 'Openslide', ''),
+        'tiff': ('._tiff', 'Tiff', ''),
+        'gdal': ('._gdal', 'Gdal', gdal_warn),
+    }
+    drivers: dict[str, type[Driver]] = {}
+    for drvname in [*env.BIPL_DRIVERS]:
+        # Find
+        if (imp := imports.get(drvname)) is None:
+            raise ValueError(f'Unknown driver: {drvname}')
+
+        # Import
+        modname, attrname, extramsg = imp
+        try:
+            mod = importlib.import_module(modname, __package__)
+        except ImportError as exc:
+            msg = f'"{drvname}" driver failed to load ({exc}). {extramsg}'
+            warn(msg, stacklevel=2)
+            env.BIPL_DRIVERS.discard(drvname)
+        else:
+            # Get driver
+            drivers[drvname] = getattr(mod, attrname)
+
+    os.environ['BIPL_DRIVERS'] = str([*env.BIPL_DRIVERS]).replace("'", '"')
+    if not drivers:
+        raise ImportError('No drivers loaded')
+
+    for drvname, pat in [  # LIFO, last driver takes priority
+        ('gdal', r'^.*\.(tif|tiff)$'),
+        ('openslide',
+         r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
+        ('tiff', r'^.*\.(bif|svs|tif|tiff)$'),
+        ('gdal', r'^(/vsicurl|(http|https|ftp)://).*$'),
+    ]:
+        if drv := drivers.get(drvname):
+            drv.register(pat)
+
+
+_load_drivers()
 
 
 @shared_call  # merge duplicate calls
 @weak_memoize  # reuse result if it's already exist, but used by someone else
 @memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
 def _cached_open(path: str) -> 'Slide':
-    last_exc = BaseException()
-    matches = (tp for pat, tps_ in REGISTRY.items() if pat.match(path)
-               for tp in tps_)
-    tps = [*dict.fromkeys(matches)]
-    if tps:
+    if tps := Driver.find(path):
+        last_exc = BaseException()
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
                 return Slide.from_file(path, tp)

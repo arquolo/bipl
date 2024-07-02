@@ -1,4 +1,4 @@
-__all__ = ['Driver', 'Image', 'ImageLevel', 'REGISTRY']
+__all__ = ['Driver', 'Image', 'ImageLevel']
 
 import re
 from collections.abc import Callable, Sequence
@@ -15,7 +15,7 @@ from bipl.ops import Tile, get_fusion, normalize_loc, rescale_crop, resize
 if TYPE_CHECKING:
     from ._util import Icc
 
-REGISTRY: dict[re.Pattern, list[type['Driver']]] = {}
+_REGISTRY: dict[re.Pattern, list[type['Driver']]] = {}
 _MIN_TILE = 256
 
 
@@ -228,9 +228,19 @@ class Driver:
 
     @final
     @classmethod
-    def register(cls, regex: str):
+    def register(cls, regex: str) -> None:
         """Registers type builder for extensions. Last call takes precedence"""
-        REGISTRY.setdefault(re.compile(regex), []).append(cls)
+        _REGISTRY.setdefault(re.compile(regex), []).append(cls)
+
+    @final
+    @staticmethod
+    def find(path: str) -> list[type['Driver']]:
+        tps: dict[type[Driver], None] = {}
+        for pat, tps_ in _REGISTRY.items():
+            if pat.match(path):
+                for tp in tps_:
+                    tps[tp] = None
+        return [*tps]
 
     def __init__(self, path: str) -> None:
         raise NotImplementedError
