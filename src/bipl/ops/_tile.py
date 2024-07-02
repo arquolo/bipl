@@ -109,12 +109,10 @@ class BlendCropper:
 
     NOTE: Each tile can make up to 4 parts.
     """
-    __slots__ = ('overlap', 'iys', 'ixs', 'call', 'cells', 'size')
+    __slots__ = ('overlap', 'call', 'cells', 'size')
 
-    iys: list[int]
-    ixs: list[int]
-    cells: npt.NDArray[np.bool_]
     size: int
+    cells: dict[NDIndex, npt.NDArray[np.bool_]]
 
     def __init__(self, cells: npt.NDArray[np.bool_], overlap: int, step: int):
         if overlap > step:
@@ -128,39 +126,43 @@ class BlendCropper:
         # -> (2h 2w)
         cells = np.lib.stride_tricks.sliding_window_view(cells, (2, 2))
         cells = np.bitwise_and.reduce(cells, axis=(-2, -1))
-        # -> (h w 4) [this, next, next row, next diag]
+        # -> (h w 2 2) [[this, next], [next row, next diag]]
         cells = cells.reshape(ih, 2, iw, 2).transpose(0, 2, 1, 3)
-        cells = cells.reshape(ih, iw, 4)
 
-        iys, ixs = cells[:, :, 0].nonzero()
-        self.iys, self.ixs = iys.tolist(), ixs.tolist()
+        c00 = cells[:, :, 0, 0]
+        sizes = (c00[:, :, None, None] & cells).sum((0, 1))
 
         if overlap < step:
             self.call = self._3x3
-            self.cells = cells[iys, ixs, 1:]  # (n 3)
-            self.size = self.cells.sum() + self.cells.shape[0]
+            self.size = sizes.sum()
         else:
             self.call = self._2x2
-            self.cells = cells[iys, ixs, 3]  # (n)
-            self.size = self.cells.sum()
+            self.size = sizes[1, 1]
+
+        # (iy, ix) -> 2x2 of bool
+        iys, ixs = c00.nonzero()
+        self.cells = {
+            (iy, ix): m
+            for iy, ix, m in zip(iys.tolist(), ixs.tolist(), cells[iys, ixs])
+        }
 
     def __call__(self, src: Iterable[Tile]) -> Iterator[Tile]:
         """Merge and split tiles."""
+        # TODO: relax input/output order
         return self.call(src)
 
     def _2x2(self, src: Iterable[Tile]) -> Iterator[Tile]:
         ops = defaultdict[NDIndex, list[_Op]](list)
         ov = self.overlap
 
-        for iy, ix, c11, tile in zip(
-                self.iys, self.ixs, self.cells, src, strict=True):
-            assert tile.idx == (iy, ix), f'Unexpected tile index: {tile.idx}'
-            idx = tile.idx
+        for tile in src:  # NOTE: supports C and F-ordering
+            iy, ix = idx = tile.idx
 
             for op in ops.pop(idx, []):  # full top & left (3)
                 yield from op(tile)
 
-            if c11:  # bottom-right (1)
+            # TODO: bag ops
+            if self.cells[iy, ix][1, 1]:  # bottom-right (1)
                 u = _angle(ov, idx, tile.data)
                 next(u)
                 ops[iy, ix + 1].append(u.send)
@@ -173,18 +175,17 @@ class BlendCropper:
         ops = defaultdict[NDIndex, list[_Op]](list)
         ov = self.overlap
 
-        for iy, ix, (c01, c10, c11), tile in zip(
-                self.iys, self.ixs, self.cells, src, strict=True):
-            idx = tile.idx
-            assert idx == (iy, ix), f'Unexpected tile index: {idx}'
+        for tile in src:  # NOTE: only C-ordering is supported.
+            iy, ix = idx = tile.idx
 
             if iy != last_iy:  # Start/end row
                 while buf:
                     yield buf.popleft()
-                last_iy = iy
+                last_iy = iy  # NOTE: this one locks iteration order
 
             for op in ops.pop(idx, []):  # full top & left (5)
                 yield from op(tile)
+            (_, c01), (c10, c11) = self.cells[iy, ix].tolist()
 
             buf.append(_center(ov, tile))  # center (1)
 
