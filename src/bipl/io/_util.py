@@ -78,6 +78,7 @@ def get_aperio_properties(description: str,
 
 
 def get_ventana_properties(s: bytes, index: int = 0) -> dict[str, str]:
+    s = s.strip(b'\00')  # For safety
     t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
     if index == 0:
         if (root := t.find('iScan')) is not None:
