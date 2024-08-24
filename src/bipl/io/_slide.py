@@ -152,7 +152,7 @@ class Slide:
         level_downsamples = *sorted(levels.keys()),
 
         if mpp is None:  # If no override is passed, use native if present
-            mpp = driver.mpp
+            mpp = driver.get_mpp()
 
         return Slide(
             path=path,

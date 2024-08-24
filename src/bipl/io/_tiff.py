@@ -602,6 +602,9 @@ class Tiff(Driver):
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
 
+    def get_mpp(self):
+        return self.mpp
+
     @contextmanager
     def ifd(self, index: int) -> Iterator:
         with self._lock:

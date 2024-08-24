@@ -221,9 +221,7 @@ class Openslide(Driver):
         bg_hex = self.osd_meta.get('background-color', 'FFFFFF')
         self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
 
-        self.mpp = self._mpp()
-
-    def _mpp(self) -> float | None:
+    def get_mpp(self) -> float | None:
         mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
         if s := [float(m) for m in mpp if m]:
             return float(np.mean(s))

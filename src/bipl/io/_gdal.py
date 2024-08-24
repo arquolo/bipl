@@ -92,13 +92,12 @@ class Gdal(Driver):
         self.meta = self.ds.GetMetadata().copy()
 
         self.bg_color = np.full(3, 255, 'u1')  # TODO: parse tags
-        self.mpp = self._mpp()
         self.lock = Lock()
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({id(self.ds):0x})'
 
-    def _mpp(self) -> float | None:
+    def get_mpp(self) -> float | None:
         if mpp := gdal_parse_mpp(self.meta):
             return float(np.mean(mpp))
         return None
