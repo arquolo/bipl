@@ -224,7 +224,8 @@ class TiledProxyLevel(ImageLevel):
 
 
 class Driver:
-    mpp: float | None
+    def get_mpp(self) -> float | None:
+        raise NotImplementedError
 
     @final
     @classmethod
