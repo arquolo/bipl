@@ -565,7 +565,6 @@ class _AperioLevel(_Level):
 class _AperioSubLevel(_AperioLevel):
     prev: ImageLevel
 
-    @time_this
     @shared_call  # Thread safety
     def _get_tile(self, *loc: int) -> _U8 | None:
         lo, hi = self.spans[loc].tolist()
