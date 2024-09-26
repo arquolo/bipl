@@ -1,11 +1,10 @@
 __all__ = ['Dzi']
 
+import json
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import cv2
 import numpy as np
-from lxml.builder import ElementMaker
-from lxml.etree import tostring
 
 if TYPE_CHECKING:
     from ._slide import Slide
@@ -17,14 +16,20 @@ class Dzi(NamedTuple):
     fmt: Literal['jpeg', 'webp', 'avif'] = 'webp'
 
     def head(self, slide: 'Slide') -> str:
-        e = ElementMaker()
-        return tostring(
-            e.Image(
-                e.Size(Height=str(slide.shape[0]), Width=str(slide.shape[1])),
-                TileSize=str(self.tile),
-                Overlap='0',
-                Format=self.fmt,
-                xmlns='http://schemas.microsoft.com/deepzoom/2008'))
+        h, w, _ = slide.shape
+        mpp = slide.mpp
+        image = {
+            'xmlns': 'http://schemas.microsoft.com/deepzoom/2008',
+            'Size': {
+                'Height': h,
+                'Width': w,
+            },
+            'MPP': mpp,
+            'TileSize': self.tile,
+            'Overlap': '0',
+            'Format': self.fmt,
+        }
+        return json.dumps({'Image': image})
 
     def tile_at(self, slide: 'Slide', level: int,
                 iy_ix: tuple[int, ...]) -> np.ndarray:
