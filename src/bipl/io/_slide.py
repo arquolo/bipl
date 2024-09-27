@@ -15,7 +15,7 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl.ops import normalize_loc, rescale_crop
+from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
 from ._slide_bases import Driver, Image, ImageLevel
 from ._util import clahe, round2
@@ -182,18 +182,21 @@ class Slide:
             }
         return replace(self, **changes) if changes else self
 
+    def norm(self, mpp: float = 64) -> 'Slide':
+        ref = self.resample(mpp=mpp).numpy()
+        normalize = Normalizer(ref)
+
+        levels = *(il.apply(normalize) for il in self.levels),
+        extras = {
+            k: i.apply(normalize) if k == 'thumbnail' else i
+            for k, i in self.extras.items()
+        }
+        return replace(self, levels=levels, extras=extras)
+
     def clahe(self) -> 'Slide':
         levels = *(il.apply(clahe, pad=64) for il in self.levels),
         extras = {k: i.apply(clahe) for k, i in self.extras.items()}
         return replace(self, levels=levels, extras=extras)
-
-    def tonemap(self, icc: bool, clahe: bool) -> 'Slide':
-        r = self
-        if icc:
-            r = r.icc()
-        if clahe:
-            r = r.clahe()
-        return r
 
     def mpp_or_error(self) -> float:
         if self.mpp is None:
@@ -317,8 +320,13 @@ class Slide:
              /,
              *,
              icc: bool = env.BIPL_ICC,
-             clahe: bool = env.BIPL_CLAHE) -> 'Slide':
+             norm: bool | float = env.BIPL_NORM) -> 'Slide':
         """Open multi-scale image."""
         if isinstance(anypath, Path):  # Filesystem
             anypath = anypath.resolve().absolute().as_posix()
-        return _cached_open(anypath).tonemap(icc=icc, clahe=clahe)
+        s = _cached_open(anypath)
+        if icc:
+            s = s.icc()
+        if not norm:
+            return s
+        return s.norm() if norm is True else s.norm(mpp=norm)

@@ -41,7 +41,7 @@ class Env(BaseSettings):
 
     BIPL_TILE_POOL_SIZE: int = 64_000_000  # Min resolution for tiled pooling
     BIPL_ICC: bool = False  # Apply image color correction
-    BIPL_CLAHE: bool = False
+    BIPL_NORM: bool = False  # Normalize luminance
 
 
 env = Env()
