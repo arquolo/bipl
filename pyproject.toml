@@ -64,9 +64,9 @@ dev-core = [
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.7",
+    "mypy~=1.11",
     "pytest~=8.0",
-    "ruff~=0.4.9",
+    "ruff~=0.6.8",
     "yapf~=0.40.2",
 ]
 dev = [
@@ -74,7 +74,6 @@ dev = [
     "flake8-alphabetize",
     # "flake8-class-attributes-order",
     # "flake8-newspaper-style",
-    "typing-extensions~=4.6",
 ]
 dev-wemake = [
     "bipl[dev-core]",
