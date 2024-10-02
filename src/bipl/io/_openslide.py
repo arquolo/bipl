@@ -61,7 +61,7 @@ _VERSION = None
 _OSD_4X = False
 if _version_bytes := OSD.openslide_get_version():
     _VERSION = Version(_version_bytes.decode())
-    _OSD_4X = Version('4.0') <= _VERSION
+    _OSD_4X = _VERSION >= Version('4.0')  # noqa: SIM300
 
 
 def _init_4x_icc():
@@ -205,7 +205,7 @@ class Openslide(Driver):
     def __init__(self, path: str):
         self.ptr = OSD.openslide_open(path.encode())
         if not self.ptr:
-            raise ValueError(f'File {path} cannot be opened')
+            raise ValueError('libopenslide failed to open file')
 
         if err := OSD.openslide_get_error(self.ptr):
             raise ValueError(err)

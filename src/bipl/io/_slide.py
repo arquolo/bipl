@@ -2,6 +2,7 @@ __all__ = ['Slide']
 
 import importlib
 import os
+import sys
 import warnings
 from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
@@ -22,6 +23,8 @@ from ._util import clahe, round2
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
+
+_PY312 = sys.version_info >= (3, 12)
 
 
 def _load_drivers() -> None:
@@ -80,13 +83,16 @@ _load_drivers()
 @memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
 def _cached_open(path: str) -> 'Slide':
     if tps := Driver.find(path):
-        last_exc = BaseException()
+        errors: list[Exception] = []
         for tp in reversed(tps):  # Loop over types to find non-failing
             try:
                 return Slide.from_file(path, tp)
             except (ValueError, TypeError) as exc:
-                last_exc = exc
-        raise last_exc from None
+                errors.append(exc)
+        if _PY312:
+            raise ExceptionGroup('Cannot open file', errors) from None
+        raise errors[-1] from None
+
     raise ValueError(f'Unknown file format {path}')
 
 
@@ -166,18 +172,15 @@ class Slide:
         )
 
     def icc(self) -> 'Slide':
+        changes = {}
         if icc_0 := self.levels[0].icc:
-            levels = *(il.apply(icc_0) for il in self.levels),
-            self = replace(self, levels=levels)
-
+            changes['levels'] = *(il.apply(icc_0) for il in self.levels),
         if any(e.icc for e in self.extras.values()):
-            extras = {
+            changes['extras'] = {
                 t: e.apply(e.icc) if e.icc else e
                 for t, e in self.extras.items()
             }
-            self = replace(self, extras=extras)
-
-        return self
+        return replace(self, **changes) if changes else self
 
     def clahe(self) -> 'Slide':
         levels = *(il.apply(clahe, pad=64) for il in self.levels),

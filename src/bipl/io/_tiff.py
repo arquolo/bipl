@@ -39,6 +39,7 @@ from ._util import (Icc, get_aperio_properties, get_ventana_properties,
 
 _T = TypeVar('_T')
 _U8 = npt.NDArray[np.uint8]
+_U64 = npt.NDArray[np.uint64]
 
 TIFF = load_library('libtiff', 6, 5)
 # _TIFF.TIFFSetErrorHandler(None)
@@ -71,7 +72,7 @@ def nv12_to_rgb(x: _U8) -> _U8:
     cb_cr = hw6[:, :, 4:]
 
     r = cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
-    return np.asarray(r)
+    return np.asarray(r, 'u1')
 
 
 class _Compression(Enum):
@@ -218,8 +219,11 @@ class _Tags:
             raise ValueError(f'TIFF: Bad tile shape - {tile}')
         return tile
 
-    def tile_spans(self, shape: tuple[int, ...],
-                   tile: tuple[int, ...]) -> npt.NDArray[np.uint64]:
+    def tile_spans(
+        self,
+        shape: tuple[int, ...],
+        tile: tuple[int, ...],
+    ) -> _U64:
         """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
         grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile)),
 
@@ -227,14 +231,14 @@ class _Tags:
         if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS, byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile offsets table present')
-        tbs = np.ctypeslib.as_array(ptr, grid_shape).copy()
+        tbs: _U64 = np.ctypeslib.as_array(ptr, grid_shape).copy()
         # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
 
         ptr = POINTER(c_uint64)()
         if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile size table present')
-        tbc = np.ctypeslib.as_array(ptr, grid_shape).copy()
+        tbc: _U64 = np.ctypeslib.as_array(ptr, grid_shape).copy()
         # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
 
         return np.stack((tbs, tbs + tbc), -1)
@@ -413,7 +417,7 @@ class _JpegDecoder:
 @dataclass(eq=False, frozen=True)
 class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
-    spans: npt.NDArray[np.uint64] = field(repr=False)
+    spans: _U64 = field(repr=False)
     tile: tuple[int, ...]
     order: str | None
     decode: Callable[[bytes], _U8]
@@ -583,7 +587,7 @@ class Tiff(Driver):
             TIFF.TIFFOpenW(path, b'rm') if sys.platform == 'win32' else
             TIFF.TIFFOpen(path.encode(), b'rm'))
         if not self._ptr:
-            raise ValueError(f'File {path} cannot be opened')
+            raise ValueError('libtiff failed to open file')
 
         weakref.finalize(self, TIFF.TIFFClose, self._ptr)
         self._dir = 0
@@ -613,7 +617,10 @@ class Tiff(Driver):
             yield self._ptr
 
     def __len__(self) -> int:
-        return TIFF.TIFFNumberOfDirectories(self._ptr)
+        n = TIFF.TIFFNumberOfDirectories(self._ptr)
+        if n < 3:
+            raise ValueError(f'Not enough levels (<3): {n}')
+        return n
 
     def _get(self, index: int) -> Image | None:
         if index == 0:
