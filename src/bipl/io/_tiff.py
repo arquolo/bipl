@@ -472,9 +472,9 @@ class _Level(ImageLevel, _BaseImage):
         th, tw = self.tile[:2]
         if im.shape[:2] != (th, tw):
             if self.pool > 2:
-                im = cv2.resize(im, (tw, th))
-            else:
                 im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
+            else:
+                im = cv2.resize(im, (tw, th))
         if self.flipped:
             im = im.swapaxes(0, 1)
 

@@ -230,8 +230,8 @@ class Slide:
         tol: float = 0.01,
     ) -> tuple[int, ImageLevel]:
         """Gives the most detailed LOD below `downsample`"""
-        downsample = downsample * max(1, 1 + tol)
-        idx = max(bisect_right(self.downsamples, downsample) - 1, 0)
+        k = max(1, 1 + tol)
+        idx = max(bisect_right(self.downsamples, downsample * k) - 1, 0)
         ds = self.downsamples[idx]
         lv = self.levels[idx]
 
