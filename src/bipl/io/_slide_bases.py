@@ -182,7 +182,7 @@ class ProxyLevel(ImageLevel):
 
     def crop(self, *loc: slice) -> np.ndarray:
         return rescale_crop(
-            self.base, *loc, scale=1 / self.scale, interpolation=3)
+            self.base, *loc, scale=1 / self.scale, interpolation=1)
 
 
 @dataclass(frozen=True)

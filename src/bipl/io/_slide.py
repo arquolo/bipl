@@ -304,7 +304,7 @@ class Slide:
 
         yx_offset = *(int(c * scale) for c in z0_yx_offset),
         loc = *(slice(c, c + size) for c, size in zip(yx_offset, dsize)),
-        return rescale_crop(lvl, *loc, scale=1 / ds / scale, interpolation=3)
+        return rescale_crop(lvl, *loc, scale=1 / ds / scale, interpolation=1)
 
     def extra(self, name: str) -> np.ndarray | None:
         if im := self.extras.get(name):
