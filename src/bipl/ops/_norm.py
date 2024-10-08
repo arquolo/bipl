@@ -37,18 +37,37 @@ class Normalizer:
     """
     def __init__(
         self,
-        rgb: np.ndarray,
+        rgb: np.ndarray | None = None,
         weight: float = 1.0,
-        r: float = 0.5,
         channels: Literal['L', 'ab', 'Lab'] = 'ab',
+        r: float = 0.5,
     ) -> None:
         assert 0 < weight <= 1
-        lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)  # (h w 3)
+        self.channels = channels
+        self.r = r
+        self.weight = weight
+        self.lut = None
+        if rgb is not None:
+            self.lut = self._make_lut(cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB))
 
+    def _make_lut(self, lab: np.ndarray) -> np.ndarray:
+        cdf = self._unsharp_cdf(lab)
+
+        if self.weight < 1:
+            cdf *= self.weight
+            cdf += np.linspace(0, 1 - self.weight, 256, dtype='f4')
+
+        return around(cdf * 255, 'u1')
+
+    def _unsharp_cdf(self, lab: np.ndarray) -> np.ndarray:
         f4 = lab.astype('f4')
         h, w = f4.shape[:2]
 
-        match channels:
+        # 256 total value counts
+        lstar = lab[:, :, 0].ravel()  # (h w) -> n
+        counts = np.bincount(lstar, minlength=256)  # 256
+
+        match self.channels:
             case 'L':
                 f4 = f4[:, :, :1]
                 f4 *= 1 / 255
@@ -61,37 +80,34 @@ class Normalizer:
         kern = np.array([[1, 2, 1], [2, -12, 2], [1, 2, 1]], 'f4') / 16
         var = cv2.filter2D(f4, -1, kern, borderType=cv2.BORDER_REPLICATE)
         var = var.reshape(h, w, -1)
-
         var = np.square(var).sum(-1).ravel()  # L2, (h w)
-        lstar = lab[:, :, 0].ravel()  # (h w)
+        var = var[lstar.argsort()]
 
-        i = lstar.argsort()
-        lstar, var = lstar[i], var[i]
+        # 256 variances
+        m = counts > 0
+        counts_nz = counts[m]
+        sep = np.r_[0, counts_nz[:-1]].cumsum()
+        df = np.zeros(256, 'f4')
+        df[m] = np.add.reduceat(var, sep) / counts_nz  # sum(E^2) -> mean(E^2)
+        df **= self.r / 2  # sqrt(mean(E^2)) ^ r
+        df /= df.sum()
 
-        # 256 total value counts
-        pdf = np.bincount(lstar, minlength=256)
-        self.cdf = around(pdf.cumsum() * (255 / pdf.sum()), 'u1')
-
-        # 256 total variances
-        m = np.r_[True, lstar[:-1] != lstar[1:]]
-        sep, = m.nonzero()
-        v256 = np.zeros(256, 'f4')
-        v256[lstar[m]] = np.add.reduceat(var, sep)
-
-        # 256 mean errors
-        v256 /= np.maximum(pdf, 1)  # sum(E^2) -> mean(E^2)
-        v256 **= r / 2  # sqrt(mean(E^2)) ** r
-        v256 /= v256.sum()
-
-        if weight < 1:
-            v256 *= weight
-            v256 += (1 - weight) / 256
-
-        self.vcdf = around(v256.cumsum() * 255, 'u1')
+        return _make_cdf(df)
 
     def __call__(self, rgb: np.ndarray) -> np.ndarray:
         if not rgb.size:
             return rgb
         lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
-        lab[:, :, 0] = cv2.LUT(lab[:, :, 0], self.vcdf)
+
+        if (lut := self.lut) is None:
+            lut = self._make_lut(lab)
+
+        lab[:, :, 0] = cv2.LUT(lab[:, :, 0], lut)
         return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+
+def _make_cdf(pdf: np.ndarray) -> np.ndarray:
+    cdf = np.ma.masked_equal(pdf.cumsum(), 0).astype('f4')
+    cdf -= cdf.min()
+    cdf /= cdf.max()
+    return cdf.filled(0)
