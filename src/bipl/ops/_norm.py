@@ -51,13 +51,22 @@ class Normalizer:
             self.lut = self._make_lut(cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB))
 
     def _make_lut(self, lab: np.ndarray) -> np.ndarray:
-        cdf = self._unsharp_cdf(lab)
+        cdf = self._minmax_cdf(lab) if self.r == 0 else self._unsharp_cdf(lab)
 
         if self.weight < 1:
             cdf *= self.weight
             cdf += np.linspace(0, 1 - self.weight, 256, dtype='f4')
 
         return around(cdf * 255, 'u1')
+
+    def _minmax_cdf(self, lab: np.ndarray) -> np.ndarray:
+        lstar = lab[:, :, 0]  # (h w)
+        lo, hi = lstar.min(), lstar.max()
+        return np.r_[
+            np.zeros(lo, dtype='f4'),
+            np.linspace(0, 1, hi - lo + 1, dtype='f4'),
+            np.ones(255 - hi, 'f4'),
+        ]
 
     def _unsharp_cdf(self, lab: np.ndarray) -> np.ndarray:
         f4 = lab.astype('f4')
