@@ -1,14 +1,14 @@
 __all__ = ['BlendCropper', 'Decimator', 'Reconstructor', 'Stripper', 'Zipper']
 
 from collections import defaultdict, deque
-from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator
 from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
 import numpy.typing as npt
 
-from ._types import NDIndex, NumpyLike, Tile, Vec
+from ._types import NDIndex, NumpyLike, Shape, Tile, Vec
 from ._util import crop_to, rescale_crop
 
 _Op = Callable[[Tile], tuple[Tile, ...]]
@@ -17,7 +17,7 @@ _Op = Callable[[Tile], tuple[Tile, ...]]
 @dataclass(frozen=True, slots=True)
 class Stripper:
     """Strips regions outside of `data.shape`. Produces non-square patches"""
-    shape: Sequence[int]
+    shape: Shape
 
     def __call__(self, tile: Tile) -> Tile:
         idx, vec, data = tile
@@ -52,7 +52,7 @@ class Zipper:
             empty = np.empty((*tsize, *extra_dims), self.v.dtype)
             return tile.idx, tile.vec, tile.data, empty
 
-        loc = (slice(c0, c0 + size) for c0, size in zip(tile.vec, tsize))
+        loc = ((c0, c0 + size) for c0, size in zip(tile.vec, tsize))
         r = rescale_crop(
             self.v, *loc, scale=self.v_scale, interpolation=self.interpolation)
 

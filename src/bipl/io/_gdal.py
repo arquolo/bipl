@@ -9,6 +9,8 @@ import numpy as np
 from osgeo import gdal, gdal_array
 from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
+from bipl.ops import Span
+
 from ._slide_bases import Driver, ImageLevel
 from ._util import gdal_parse_mpp
 
@@ -50,7 +52,7 @@ class _Level(ImageLevel):
     g: 'Gdal'
     bands: tuple[gdal.Band, ...]
 
-    def crop(self, *loc: slice) -> np.ndarray:
+    def part(self, *loc: Span) -> np.ndarray:
         box, valid_box, shape = self._unpack_2d_loc(*loc)
 
         (y0, y1), (x0, x1) = valid_box.tolist()

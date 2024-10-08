@@ -24,6 +24,7 @@ import numpy as np
 from packaging.version import Version
 
 from bipl._env import env
+from bipl.ops import Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel
@@ -175,7 +176,7 @@ class _Level(ImageLevel):
     index: int
     osd: 'Openslide'
 
-    def crop(self, *loc: slice) -> np.ndarray:
+    def part(self, *loc: Span) -> np.ndarray:
         box, valid_box, shape = self._unpack_2d_loc(*loc)
 
         (y0, y1), (x0, x1) = valid_box
@@ -277,7 +278,7 @@ class Openslide(Driver):
         return _Image((h.value, w.value, 3), name, self)
 
     @property
-    def bbox(self) -> tuple[slice, slice]:
+    def bbox(self) -> tuple[slice, ...]:
         bbox = (
             self.osd_meta.get(f'bounds-{t}')
             for t in ('y', 'x', 'height', 'width'))

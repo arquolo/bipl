@@ -6,7 +6,7 @@ from typing import NamedTuple, Protocol
 import numpy as np
 
 NDIndex = tuple[int, ...]  # Index vector
-Shape: tuple[int, ...]  # N-dim shape
+Shape = tuple[int, ...]  # N-dim shape
 Span = tuple[int, int]  # start/stop for `slice()`
 Vec = tuple[int, ...]  # N-dim radius-vector to some point
 

@@ -6,12 +6,14 @@ from typing import TYPE_CHECKING, Literal, NamedTuple
 import cv2
 import numpy as np
 
+from bipl.ops import NDIndex
+
 if TYPE_CHECKING:
     from ._slide import Slide
 
 
 class Dzi(NamedTuple):
-    tile: int
+    tile_size: int
     quality: int = 90
     fmt: Literal['jpeg', 'webp', 'avif'] = 'webp'
 
@@ -25,18 +27,18 @@ class Dzi(NamedTuple):
                 'Width': w,
             },
             'MPP': mpp,
-            'TileSize': self.tile,
+            'TileSize': self.tile_size,
             'Overlap': '0',
             'Format': self.fmt,
         }
         return json.dumps({'Image': image})
 
     def tile_at(self, slide: 'Slide', level: int,
-                iy_ix: tuple[int, ...]) -> np.ndarray:
+                iy_ix: NDIndex) -> np.ndarray:
         scale = 2 ** (level - max(slide.shape[:2]).bit_length())
-        tile_0 = self.tile / scale
+        tile_0 = self.tile_size / scale
         offset_0 = *(ip * tile_0 for ip in iy_ix),
-        return slide.at(offset_0, self.tile, scale=scale)
+        return slide.at(offset_0, self.tile_size, scale=scale)
 
     def compress(self, rgb: np.ndarray) -> bytes:
         qtag = {

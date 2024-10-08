@@ -15,7 +15,7 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl.ops import Normalizer, normalize_loc, rescale_crop
+from bipl.ops import Normalizer, Shape, Vec, normalize_loc, rescale_crop
 
 from ._slide_bases import Driver, Image, ImageLevel
 from ._util import clahe, round2
@@ -102,8 +102,8 @@ class Slide:
     """Usage:
     ```
     slide = Slide.open('test.svs')
-    shape: Sequence[int] = slide.shape
-    downsamples: Sequence[int] = slide.downsamples
+    shape: tuple[int, ...] = slide.shape
+    downsamples: tuple[int, ...] = slide.downsamples
 
     # Get numpy.ndarray
     image: np.ndarray = slide[:2048, :2048]
@@ -113,11 +113,11 @@ class Slide:
     # TODO: add __enter__/__exit__/close to make memory management explicit
     # TODO: call .close in finalizer
     path: str
-    shape: Sequence[int]
-    downsamples: Sequence[int]
+    shape: Shape
+    downsamples: tuple[int, ...]
     mpp: float | None
     driver: str
-    bbox: tuple = field(repr=False)
+    bbox: tuple[slice, ...] = field(repr=False)
     levels: Sequence[ImageLevel] = field(repr=False)
     extras: Mapping[str, Image] = field(repr=False)
     dtype = np.dtype(np.uint8)
@@ -256,19 +256,16 @@ class Slide:
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve image patch from maximum resolution"""
         y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
-        if y_loc.step <= 0 or x_loc.step <= 0:
-            raise ValueError('slice steps should be positive')
+        r = self.levels[0].part(y_loc, x_loc)
+        return r[:, :, c_loc]
 
-        r = self.levels[0].crop(
-            slice(y_loc.start, y_loc.stop),
-            slice(x_loc.start, x_loc.stop),
-        )
-        return r[::y_loc.step, ::x_loc.step, c_loc]
+    def numpy(self) -> np.ndarray:
+        return self.levels[0].numpy()
 
     @overload
     def at(self,
-           z0_yx_offset: tuple[int, ...],
-           dsize: int | tuple[int, ...],
+           z0_yx_offset: Vec,
+           dsize: int | Shape,
            *,
            scale: float,
            tol: float = ...) -> np.ndarray:
@@ -276,22 +273,22 @@ class Slide:
 
     @overload
     def at(self,
-           z0_yx_offset: tuple[int, ...],
-           dsize: int | tuple[int, ...],
+           z0_yx_offset: Vec,
+           dsize: int | Shape,
            *,
            mpp: float,
            tol: float = ...) -> np.ndarray:
         ...
 
     def at(self,
-           z0_yx_offset: tuple[int, ...],
-           dsize: int | tuple[int, ...],
+           z0_yx_offset: Vec,
+           dsize: int | Shape,
            *,
            scale: float | None = None,
            mpp: float | None = None,
            tol: float = 0.01) -> np.ndarray:
         """Read square region starting with offset"""
-        dsize = dsize if isinstance(dsize, tuple) else (dsize, dsize)
+        dsize = dsize if isinstance(dsize, Sequence) else (dsize, dsize)
         if len(dsize) != 2:
             raise ValueError(f'dsize should be 2-tuple or int. Got {dsize}')
 
@@ -303,7 +300,7 @@ class Slide:
         ds, lvl = self.best_level_for(1 / scale, tol=tol)
 
         yx_offset = *(int(c * scale) for c in z0_yx_offset),
-        loc = *(slice(c, c + size) for c, size in zip(yx_offset, dsize)),
+        loc = *((c, c + size) for c, size in zip(yx_offset, dsize)),
         return rescale_crop(lvl, *loc, scale=1 / ds / scale, interpolation=1)
 
     def extra(self, name: str) -> np.ndarray | None:

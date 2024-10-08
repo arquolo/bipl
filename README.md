@@ -10,8 +10,8 @@ import numpy as np
 from bipl import Slide
 
 slide = Slide.open('test.svs')
-shape: Sequence[int] = slide.shape  # Native shape
-downsamples: Sequence[int] = slide.downsamples  # List of pre-existing sub-resolution levels
+shape: tuple[int, ...] = slide.shape  # Native shape
+downsamples: tuple[int, ...] = slide.downsamples  # List of pre-existing sub-resolution levels
 
 # Get native miniature
 tmb: np.ndarray = slide.thumbnail()
@@ -26,7 +26,7 @@ mini = slide.resample(MPP)  # Gives the same result
 
 # Those ones trigger ndarray conversion
 image: np.ndarray
-image = mini[:512, :512]  # Take a crop of
+image = mini[:512, :512]  # Take a part of
 image = mini.numpy()  # Take a whole resolution level
 image = np.array(mini, copy=False)  # Use __array__ API
 ```

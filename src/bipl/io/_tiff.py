@@ -31,6 +31,7 @@ from glow import shared_call, si_bin, sizeof
 from numpy.lib.stride_tricks import as_strided
 
 from bipl._env import env
+from bipl.ops import Shape, Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel
@@ -118,7 +119,7 @@ class _Tag:  # noqa: PIE795,RUF100
 
 
 class _Tags:
-    def __init__(self, ptr):
+    def __init__(self, ptr) -> None:
         self._ptr = ptr
 
         compression, = self._get(c_uint16, 259)
@@ -204,14 +205,14 @@ class _Tags:
         return ()
 
     @property
-    def image_shape(self) -> tuple[int, int, int]:
+    def image_shape(self) -> Shape:
         shape = *self._get(c_uint32, 257, 256), self.spp
         if len(shape) != 3:
             raise ValueError(f'TIFF: Bad image shape - {shape}')
         return shape
 
     @property
-    def tile_shape(self) -> tuple[int, int, int] | None:
+    def tile_shape(self) -> Shape | None:
         if not TIFF.TIFFIsTiled(self._ptr):
             return None
         tile = *self._get(c_uint32, 323, 322), self.spp
@@ -219,13 +220,9 @@ class _Tags:
             raise ValueError(f'TIFF: Bad tile shape - {tile}')
         return tile
 
-    def tile_spans(
-        self,
-        shape: tuple[int, ...],
-        tile: tuple[int, ...],
-    ) -> _U64:
+    def tile_spans(self, shape: Shape, tile_shape: Shape) -> _U64:
         """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
-        grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile)),
+        grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile_shape)),
 
         ptr = POINTER(c_uint64)()
         if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS, byref(ptr)):
@@ -418,7 +415,7 @@ class _JpegDecoder:
 class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: _U64 = field(repr=False)
-    tile: tuple[int, ...]
+    tile_shape: Shape
     order: str | None
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
@@ -426,7 +423,7 @@ class _Level(ImageLevel, _BaseImage):
     pool: int
 
     def octave(self) -> '_Level | None':
-        th, tw, tc = self.tile
+        th, tw, tc = self.tile_shape
         if th % 2 or tw % 2:
             return None
 
@@ -434,7 +431,7 @@ class _Level(ImageLevel, _BaseImage):
         return replace(
             self,
             shape=((h + 1) // 2, (w + 1) // 2, c),
-            tile=(th // 2, tw // 2, tc),
+            tile_shape=(th // 2, tw // 2, tc),
             pool=self.pool * 2,
         )
 
@@ -446,7 +443,7 @@ class _Level(ImageLevel, _BaseImage):
         return hash(self.memo) ^ hash(self.shape)
 
     @shared_call  # Thread safety
-    def _get_tile(self, *loc: int) -> _U8 | None:
+    def tile(self, *loc: int) -> _U8 | None:
         lo, hi = self.spans[loc].tolist()
         if lo == hi:  # If nothing to read, don't read
             return None
@@ -469,7 +466,7 @@ class _Level(ImageLevel, _BaseImage):
         im = self.decode(self.memo[lo:hi])
 
         # Resize if level is pooled
-        th, tw = self.tile[:2]
+        th, tw = self.tile_shape[:2]
         if im.shape[:2] != (th, tw):
             if self.pool > 2:
                 im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
@@ -481,11 +478,11 @@ class _Level(ImageLevel, _BaseImage):
         self.cache[key] = im  # type: ignore
         return im  # type: ignore
 
-    def crop(self, *loc: slice) -> _U8:
-        *tile, spp = self.tile
+    def part(self, *loc: Span) -> _U8:
+        th, tw, spp = self.tile_shape
 
         # (y/x lo/hi)
-        box = np.array([(s.start, s.stop) for s in loc])
+        box = np.array(loc)
         out_shape = np.r_[box[:, 1] - box[:, 0], spp]
 
         if not out_shape.all():
@@ -495,13 +492,11 @@ class _Level(ImageLevel, _BaseImage):
         if (bmin == bmax).any():  # Crop is outside of image
             return np.broadcast_to(self.fill, out_shape)
 
+        iloc: tuple[range, ...]
         iloc, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
-            *map(self._make_index, box[:, 0], bmin, bmax, tile))
+            *map(self._make_index, box[:, 0], bmin, bmax, (th, tw)))
 
-        parts = [
-            self._get_tile(y, x, 0)
-            for y, x in product(*(ids.tolist() for ids in iloc))
-        ]
+        parts = [self.tile(y, x, 0) for y, x in product(*iloc)]
 
         out = np.empty(out_shape, self.dtype)
         out[:y0] = self.fill
@@ -517,12 +512,18 @@ class _Level(ImageLevel, _BaseImage):
         return out
 
     def _make_index(
-            self, min_: int, vmin: int, vmax: int,
-            tile: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
+        self,
+        min_: int,
+        vmin: int,
+        vmax: int,
+        tile_size: int,
+    ) -> tuple[range, np.ndarray, np.ndarray, list]:
+        lo = vmin // tile_size
+        hi = -(-vmax // tile_size)
+        n = hi - lo
+
         # (n + 1)
-        ids1 = np.arange(vmin // tile, 1 - (-vmax // tile))
-        n = ids1.size - 1
-        ts = ids1 * tile
+        ts = np.arange(lo, hi + 1) * tile_size
         vsep = ts.clip(vmin, vmax)
 
         # (n lo/hi), source & target slices
@@ -533,18 +534,18 @@ class _Level(ImageLevel, _BaseImage):
         # (lo/hi), region of `out` to fill
         o_span = o_crops[[0, -1], [0, 1]].tolist()
 
-        return ids1[:-1], t_crops, o_crops, o_span
+        return range(lo, hi), t_crops, o_crops, o_span
 
     def flip(self) -> '_Level':
         h, w, c = self.shape
-        th, tw, tc = self.tile
+        th, tw, tc = self.tile_shape
         reorder = {'C': 'F', 'F': 'C', None: None}
         return replace(
             self,
             shape=(w, h, c),
             flipped=not self.flipped,
             spans=self.spans.swapaxes(0, 1),
-            tile=(tw, th, tc),
+            tile_shape=(tw, th, tc),
             order=reorder[self.order],
         )
 
@@ -570,11 +571,11 @@ class _AperioSubLevel(_AperioLevel):
     prev: ImageLevel
 
     @shared_call  # Thread safety
-    def _get_tile(self, *loc: int) -> _U8 | None:
+    def tile(self, *loc: int) -> _U8 | None:
         lo, hi = self.spans[loc].tolist()
         if lo == hi:  # Read tile from backup level
             iy, ix, _ = loc
-            th, tw = self.tile[:2]
+            th, tw = self.tile_shape[:2]
             return self.prev[iy * th:iy * th + th, ix * tw:ix * tw + tw]
 
         return self._get_tile_raw(lo, hi, *loc)
@@ -605,7 +606,7 @@ class Tiff(Driver):
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
 
-    def get_mpp(self):
+    def get_mpp(self) -> float | None:
         return self.mpp
 
     @contextmanager
@@ -638,12 +639,12 @@ class Tiff(Driver):
                              f'{tags.subsampling}')
 
         shape = tags.image_shape
-        tile = tags.tile_shape
+        tile_shape = tags.tile_shape
 
-        if tile is None:  # Not tiled
+        if tile_shape is None:  # Not tiled
             return _Image(shape, tags.icc, False, self, head, index)
 
-        spans = tags.tile_spans(shape, tile)
+        spans = tags.tile_spans(shape, tile_shape)
         order = _detect_tile_order(spans[..., 0])
 
         # Aperio can choke on non-L0 levels. Read those from L0 to fix.
@@ -651,8 +652,8 @@ class Tiff(Driver):
         if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
             raise ValueError('Found 0s in tile size table')
 
-        return _Level(shape, tags.icc, False, self._memo, spans, tile, order,
-                      tags.get_decoder(), self.cache, self._bg_color, 1)
+        return _Level(shape, tags.icc, False, self._memo, spans, tile_shape,
+                      order, tags.get_decoder(), self.cache, self._bg_color, 1)
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):

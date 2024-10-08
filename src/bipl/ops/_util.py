@@ -1,10 +1,10 @@
 __all__ = [
-    'crop_to', 'get_fusion', 'get_trapz', 'normalize_loc',
+    'at', 'crop_to', 'get_fusion', 'get_trapz', 'normalize_loc',
     'probs_to_rgb_heatmap', 'resize'
 ]
 
 from collections.abc import Iterable, Sequence
-from itertools import zip_longest
+from itertools import starmap
 from math import ceil, floor
 
 import cv2
@@ -12,7 +12,7 @@ import numpy as np
 
 from bipl import env
 
-from ._types import NumpyLike, Tile, Vec
+from ._types import NumpyLike, Span, Tile, Vec
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
@@ -55,41 +55,45 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
 
 
 def normalize_loc(loc: Sequence[slice] | slice,
-                  shape: Sequence[int]) -> tuple[slice, ...]:
+                  shape: Sequence[int]) -> list[Span]:
     """Ensures slices match ndim and have noo `None` endpoints"""
     if isinstance(loc, slice):
         loc = loc,
+    if any(s.step not in (None, 1) for s in loc):
+        raise ValueError(f'Slice step is not supported, got: {loc}')
+    loc_ = [(s.start or 0, size if s.stop is None else s.stop)
+            for s, size in zip(loc, shape)]
+    return _pad_loc(loc_, shape)
+
+
+def _pad_loc(loc: Sequence[Span], shape: Sequence[int]) -> list[Span]:
+    n = len(loc)
     ndim = len(shape)
-    if len(loc) > ndim:
+    if n > ndim:
         raise ValueError(f'loc is too deep for {ndim}D, got: {loc}')
-    it = (slice(
-        s.start or 0,
-        s.stop if s.stop is not None else axis_len,
-        s.step if s.step is not None else 1,
-    ) for s, axis_len in zip_longest(loc, shape, fillvalue=slice(None)))
-    return *it,
+    return [*loc, *((0, s) for s in shape[n:])]
 
 
-def padslice(a: NumpyLike, *loc: slice) -> np.ndarray:
+def padslice(a: NumpyLike, *loc: Span) -> np.ndarray:
     """
     Do `a[loc]`, but extend `a` (with 0s) if `loc` indices beyond `a.shape`.
     """
-    loc = normalize_loc(loc, a.shape)
+    loc = *_pad_loc(loc, a.shape),
+    r_shape = [hi - lo for lo, hi in loc]
 
     # Nothing to pad
     if not all(a.shape):
-        return np.zeros([s.stop - s.start for s in loc], a.dtype)
+        return np.zeros(r_shape, a.dtype)
 
     # No need to pad
-    if all(0 <= s.start <= s.stop <= size for s, size in zip(loc, a.shape)):
-        return a[loc]
+    if all(0 <= lo <= hi <= size for (lo, hi), size in zip(loc, a.shape)):
+        return at(a, *loc)
 
-    iloc = *(slice(np.clip(s.start, 0, size), np.clip(s.stop, 0, size))
-             for s, size in zip(loc, a.shape)),
-    rloc = *(slice(i.start - s.start, i.stop - s.start)
-             for s, i in zip(loc, iloc)),
+    iloc = *(slice(*np.clip(s, 0, size)) for s, size in zip(loc, a.shape)),
+    rloc = *(slice(i.start - lo, i.stop - lo)
+             for (lo, _), i in zip(loc, iloc)),
 
-    r = np.empty([s.stop - s.start for s in loc], a.dtype)
+    r = np.empty(r_shape, a.dtype)
     pad = ()
     for o in rloc:
         r[*pad, :o.start] = 0
@@ -113,7 +117,7 @@ def crop_to(vec: Vec, a: NumpyLike,
     Returns new offset & data.
     """
     assert len(a.shape) >= len(shape), 'Desired shape has more dims than `a`'
-    loc = *(slice(*np.clip([0, ts], -t0, s - t0))
+    loc = *(Span(np.clip([0, ts], -t0, s - t0))
             for t0, ts, s in zip(vec, a.shape, shape)),
     a = padslice(a, *loc)
 
@@ -184,7 +188,7 @@ def get_fusion(tiles: Iterable[Tile],
 
 
 def rescale_crop(a: NumpyLike,
-                 *loc: slice,
+                 *loc: Span,
                  scale: float = 1,
                  interpolation: int = 0):
     """
@@ -204,14 +208,14 @@ def rescale_crop(a: NumpyLike,
     if scale == 1:
         return padslice(a, *loc)
 
-    box = np.array([[s.start, s.stop] for s in loc], 'i4')  # (y/x, start/stop)
+    box = np.array(loc, 'i4')  # (y/x, start/stop)
     h, w = (box[:, 1] - box[:, 0]).tolist()
     if not h or not w:  # 0-size output
         return np.empty((h, w, *a.shape[2:]), a.dtype)
 
     lo_f, hi_f = np.multiply(box, scale, dtype='f4').T
 
-    loc = *(slice(floor(lo_), ceil(hi_)) for lo_, hi_ in zip(lo_f, hi_f)),
+    loc = *((floor(lo_), ceil(hi_)) for lo_, hi_ in zip(lo_f, hi_f)),
     if not env.BIPL_SUBPIX:
         return resize(padslice(a, *loc), (h, w))
 
@@ -222,14 +226,14 @@ def rescale_crop(a: NumpyLike,
     eps = (0, 0, 1, 0, 3)[interpolation]
 
     # Tight slice to have all necessary pixels
-    loc = *(slice(*np.clip([s.start - eps, s.stop + eps], 0, size))
-            for s, size in zip(loc, a.shape)),
-    r = a[loc]
+    loc = *(Span(np.clip([lo - eps, hi + eps], 0, size))
+            for (lo, hi), size in zip(loc, a.shape)),
+    r = at(a, *loc)
     if not r.size:  # 0-size tight slice
         return np.zeros((h, w, *a.shape[2:]), a.dtype)
 
     # Resample image crop to destination grid
-    dy, dx = (lo_ - s.start + (scale - 1) / 2 for lo_, s in zip(lo_f, loc))
+    dy, dx = (lo_ - lo + (scale - 1) / 2 for lo_, (lo, _) in zip(lo_f, loc))
     return cv2.warpAffine(
         r,
         np.array([[scale, 0, dx], [0, scale, dy]], 'f4'),
@@ -237,3 +241,8 @@ def rescale_crop(a: NumpyLike,
         flags=interpolation | cv2.WARP_INVERSE_MAP,
         borderMode=cv2.BORDER_CONSTANT,
     )
+
+
+def at(a: NumpyLike, *loc: Span) -> np.ndarray:
+    s = *starmap(slice, loc),
+    return a[s]

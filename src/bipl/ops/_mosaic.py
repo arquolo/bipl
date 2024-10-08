@@ -1,6 +1,7 @@
 __all__ = ['Mosaic', 'Patches', 'Tiles']
 
 import dataclasses
+import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -15,8 +16,8 @@ import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
 from ._tile import BlendCropper, Decimator, Reconstructor, Stripper, Zipper
-from ._types import NDIndex, NumpyLike, Tile, Vec
-from ._util import get_trapz, padslice
+from ._types import NDIndex, NumpyLike, Shape, Span, Tile, Vec
+from ._util import at, get_trapz, padslice
 
 # TODO: allow result of .map/.map_batched to have different tile and step
 # NOTE: all classes here are stateless & their iterators are reentrant.
@@ -76,7 +77,7 @@ class Mosaic:
                              f'overlap={self.overlap} and step={self.step}')
 
     @property
-    def tile(self) -> int:
+    def tile_size(self) -> int:
         return self.step + self.overlap
 
     def get_kernel(self) -> np.ndarray:
@@ -85,10 +86,11 @@ class Mosaic:
     def iterate(self, image: NumpyLike, max_workers: int = 1) -> '_ArrayTiles':
         """Read tiles from input image"""
         # Source shape
-        shape = image.shape[:2]
+        shape = *image.shape[:2],
 
         # Index
-        ih, iw = ishape = *((s + self.tile - 1) // self.step for s in shape),
+        ih, iw = ishape = *((s + self.tile_size - 1) // self.step
+                            for s in shape),
         cells = np.ones(ishape, dtype=np.bool_)
 
         # Align slide & cells centers
@@ -99,7 +101,7 @@ class Mosaic:
         # First tile is [origin: origin + tile]
         iyx = np.mgrid[:ih, :iw].transpose(1, 2, 0)
         yx0 = self.step * iyx + origin
-        yx1 = self.tile + yx0
+        yx1 = self.tile_size + yx0
         locs = np.stack([yx0, yx1], -1)  # (ih iw YX lo-hi)
 
         return _ArrayTiles(shape, self, cells, locs, image, max_workers)
@@ -111,7 +113,7 @@ class Mosaic:
 @dataclass(frozen=True)
 class Patches:
     """Iterable of rectangular patches from non-uniform grid"""
-    shape: Sequence[int]
+    shape: Shape
 
     def __len__(self) -> int:
         raise NotImplementedError
@@ -159,7 +161,10 @@ class Patches:
         return self._patches_from(map(Stripper(self.shape), self))
 
     def crop(self) -> 'Patches':
-        # TODO: deprecate
+        warnings.warn(
+            '"Patches.crop" is deprecated. Use "Patches.strip"',
+            category=DeprecationWarning,
+            stacklevel=2)
         return self.strip()
 
     def zip_with(
@@ -366,14 +371,14 @@ class _ArrayTiles(Tiles):
 
         mask = np.where(mask, np.uint8(255), np.uint8(0))
 
-        if half_tile := ceil(self.m.tile * scale / 2):
+        if half_tile := ceil(self.m.tile_size * scale / 2):
             kernel = np.ones((3, 3), dtype='u1')
             mask = cv2.dilate(mask, kernel, iterations=half_tile)
 
         # Align mask & cells centers
         ih, iw = ishape = self.cells.shape
         view = *(round(i * self.m.step * scale) for i in ishape),
-        loc = *(slice((s0 - s1) // 2, (s0 - s1) // 2 + s1)
+        loc = *(((s0 - s1) // 2, (s0 - s1) // 2 + s1)
                 for s0, s1 in zip(mask.shape, view)),
         mask = padslice(mask, *loc)
 
@@ -381,24 +386,24 @@ class _ArrayTiles(Tiles):
 
         return dataclasses.replace(self, cells=self.cells & cells.astype(bool))
 
-    def _get_tile(self, idx: NDIndex, *loc: slice) -> Tile:
+    def _get_tile(self, idx: NDIndex, *loc: Span) -> Tile:
         """Do `data[loc]`. Result could be cropped."""
-        vec = *(s.start for s in loc),
-        return Tile(idx=idx, vec=vec, data=self.data[loc])
+        vec = *(lo for lo, _ in loc),
+        return Tile(idx=idx, vec=vec, data=at(self.data, *loc))
 
-    def _get_tile_padded(self, idx: NDIndex, *loc: slice) -> Tile:
+    def _get_tile_padded(self, idx: NDIndex, *loc: Span) -> Tile:
         """Do `data[loc]` padding data in necessary."""
-        vec = *(s.start for s in loc),
+        vec = *(lo for lo, _ in loc),
         return Tile(idx=idx, vec=vec, data=padslice(self.data, *loc))
 
     def _ilocs(
         self,
         locs: npt.NDArray[np.int64],
-    ) -> list[tuple[NDIndex, slice, slice]]:
+    ) -> list[tuple[NDIndex, Span, Span]]:
         """Precompute tile coordinates: 2D index & Y/X-slices"""
         iys, ixs = self.cells.nonzero()
         boxes = locs[iys, ixs].tolist()
-        return [(i, slice(*ys), slice(*xs))
+        return [(i, ys, xs)
                 for i, (ys, xs) in zip(zip(iys.tolist(), ixs.tolist()), boxes)]
 
     def _drop_overlaps(self,
@@ -437,4 +442,4 @@ class _ArrayTiles(Tiles):
         iys, ixs = self.cells.nonzero()
         i = int(iys[idx]), int(ixs[idx])
         ys, xs = self.locs[i].tolist()
-        return self._get_tile_padded(i, slice(*ys), slice(*xs))
+        return self._get_tile_padded(i, ys, xs)

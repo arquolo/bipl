@@ -1,7 +1,7 @@
 __all__ = ['Driver', 'Image', 'ImageLevel']
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import ceil
 from typing import TYPE_CHECKING, final
@@ -10,7 +10,8 @@ import cv2
 import numpy as np
 
 from bipl import env
-from bipl.ops import Tile, get_fusion, normalize_loc, rescale_crop, resize
+from bipl.ops import (Shape, Span, Tile, get_fusion, normalize_loc,
+                      rescale_crop, resize)
 
 if TYPE_CHECKING:
     from ._util import Icc
@@ -21,7 +22,7 @@ _MIN_TILE = 256
 
 @dataclass(frozen=True)
 class Image:
-    shape: Sequence[int]
+    shape: Shape
     dtype = np.dtype(np.uint8)
 
     @property
@@ -55,18 +56,15 @@ class ImageLevel(Image):
     def key(self) -> None:
         return None
 
-    def crop(self, *loc: slice) -> np.ndarray:
+    def part(self, *loc: Span) -> np.ndarray:
         """Reads crop of LOD. Overridable"""
         raise NotImplementedError
 
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve sub-image as array from set location"""
-        y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
-        if not y_loc.step == x_loc.step == 1:
-            raise ValueError('Y/X slice steps should be 1 for now, '
-                             f'got {y_loc.step} and {x_loc.step}')
-        return self.crop(y_loc, x_loc)[:, :, c_loc]
+        y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
+        return self.part(y_loc, x_loc)[:, :, c_lo:c_hi]
 
     @final
     def numpy(self) -> np.ndarray:
@@ -114,19 +112,16 @@ class ImageLevel(Image):
     def fallback(self, lv: 'ImageLevel', ds: int) -> 'ImageLevel':
         return self
 
-    def _unpack_2d_loc(
-        self,
-        *slices: slice,
-    ) -> tuple[np.ndarray, np.ndarray, list[int]]:
-        # box[axis, {start, stop}]
-        box = np.array([(s.start, s.stop) for s in slices])
+    def _unpack_2d_loc(self, *loc:
+                       Span) -> tuple[np.ndarray, np.ndarray, Shape]:
+        box = np.array(loc)  # box[axis, {start, stop}]
 
         # Slices guarantied to be within image shape
         h, w = self.shape[:2]
         valid_box = box.clip(0, [[h], [w]])
 
         # Full output shape
-        out_shape = (box @ [-1, 1]).tolist()
+        out_shape = *(box @ [-1, 1]).tolist(),
         return box, valid_box, out_shape
 
     @staticmethod
@@ -165,14 +160,14 @@ class _LambdaLevel(ImageLevel):
     fn: Callable[[np.ndarray], np.ndarray]
     pad: int = 64
 
-    def crop(self, *loc: slice) -> np.ndarray:
-        loc_ = *(slice(s.start - self.pad, s.stop + self.pad, s.step)
-                 for s in loc),
-        im = self.base.crop(*loc_)
+    def part(self, *loc: Span) -> np.ndarray:
+        if self.pad:
+            loc = *((lo - self.pad, hi + self.pad) for lo, hi in loc),
+        im = self.base.part(*loc)
         im = self.fn(im)
-        if not self.pad:
-            return im
-        return im[self.pad:-self.pad, self.pad:-self.pad, :]
+        if self.pad:
+            return im[self.pad:-self.pad, self.pad:-self.pad, :]
+        return im
 
 
 @dataclass(frozen=True)
@@ -180,7 +175,7 @@ class ProxyLevel(ImageLevel):
     scale: float
     base: ImageLevel
 
-    def crop(self, *loc: slice) -> np.ndarray:
+    def part(self, *loc: Span) -> np.ndarray:
         return rescale_crop(
             self.base, *loc, scale=1 / self.scale, interpolation=1)
 
@@ -191,18 +186,18 @@ class TiledProxyLevel(ImageLevel):
     downsample: int
     r_tile: int
 
-    def crop(self, *loc: slice) -> np.ndarray:
-        s_start = [s.start * self.downsample for s in loc]
+    def part(self, *loc: Span) -> np.ndarray:
+        s_start = [lo * self.downsample for lo, _ in loc]
 
-        r_shape = *(s.stop - s.start for s in loc),
+        r_shape = *(hi - lo for lo, hi in loc),
         s_shape = *(size * self.downsample for size in r_shape),
         if not all(s_shape):
             return np.empty((*r_shape, self.base.shape[2]), self.dtype)
 
         if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
-            s_loc = *(slice(s.start * self.downsample,
-                            s.stop * self.downsample) for s in loc),
-            return resize(self.base.crop(*s_loc), r_shape[:2])
+            s_loc = *((lo * self.downsample, hi * self.downsample)
+                      for lo, hi in loc),
+            return resize(self.base.part(*s_loc), r_shape[:2])
 
         r_tile = self.r_tile
         s_tile = r_tile * self.downsample
@@ -267,5 +262,5 @@ class Driver:
         raise NotImplementedError
 
     @property
-    def bbox(self) -> tuple[slice, slice]:
+    def bbox(self) -> tuple[slice, ...]:
         return slice(None), slice(None)
