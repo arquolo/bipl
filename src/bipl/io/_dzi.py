@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal, NamedTuple
 import cv2
 import numpy as np
 
-from bipl.ops import NDIndex
+from bipl._types import NDIndex
 
 if TYPE_CHECKING:
     from ._slide import Slide

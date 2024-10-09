@@ -15,8 +15,9 @@ import numpy as np
 import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
+from bipl._types import HasParts, NDIndex, NumpyLike, Shape, Span, Tile, Vec
+
 from ._tile import BlendCropper, Decimator, Reconstructor, Stripper, Zipper
-from ._types import NDIndex, NumpyLike, Shape, Span, Tile, Vec
 from ._util import at, get_trapz, padslice
 
 # TODO: allow result of .map/.map_batched to have different tile and step
@@ -430,7 +431,16 @@ class _ArrayTiles(Tiles):
         # Though we hope that data don't use index wrapping i.e. `index % size`
         locs = self._drop_overlaps(self.locs)
         ilocs = self._ilocs(locs)
-        parts = starmap_n(self._get_tile, ilocs, max_workers=self.max_workers)
+        if isinstance(self.data, HasParts):
+            ids = [i[0] for i in ilocs]
+            boxes = [i[1:] for i in ilocs]
+            patches = self.data.parts(boxes, max_workers=self.max_workers)
+            parts = (Tile(idx=i, vec=Vec(s[0] for s in p.loc), data=p.data)
+                     for i, p in zip(ids, patches))
+        else:
+            parts = starmap_n(
+                self._get_tile, ilocs, max_workers=self.max_workers)
+
         if not self.m.overlap:
             return parts
 
