@@ -154,10 +154,12 @@ def gdal_parse_mpp(meta: Mapping) -> list[float]:
 # ------------- contrast-limited adaptive histogram equalization -------------
 
 
-def clahe(im: np.ndarray) -> np.ndarray:
+def clahe(im: np.ndarray,
+          cell_size: int = 64,
+          clip_limit: float = 2.0) -> np.ndarray:
     h, w = im.shape[:2]
-    gh, gw = max(h // 64, 1), max(w // 64, 1)
-    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(gw, gh))
+    gh, gw = (h // cell_size) or 1, (w // cell_size) or 1
+    cl = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(gw, gh))
 
     ls, a, b = cv2.split(cv2.cvtColor(im, cv2.COLOR_RGB2LAB))
     ls = cl.apply(ls)

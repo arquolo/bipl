@@ -18,7 +18,7 @@ from bipl import env
 from bipl.ops import Normalizer, Shape, Vec, normalize_loc, rescale_crop
 
 from ._slide_bases import Driver, Image, ImageLevel
-from ._util import clahe, round2
+from ._util import round2
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -191,11 +191,6 @@ class Slide:
             k: i.apply(normalize) if k == 'thumbnail' else i
             for k, i in self.extras.items()
         }
-        return replace(self, levels=levels, extras=extras)
-
-    def clahe(self) -> 'Slide':
-        levels = *(il.apply(clahe, pad=64) for il in self.levels),
-        extras = {k: i.apply(clahe) for k, i in self.extras.items()}
         return replace(self, levels=levels, extras=extras)
 
     def mpp_or_error(self) -> float:
