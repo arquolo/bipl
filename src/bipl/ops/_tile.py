@@ -8,7 +8,8 @@ from functools import partial
 import numpy as np
 import numpy.typing as npt
 
-from ._types import NDIndex, NumpyLike, Shape, Tile, Vec
+from bipl._types import NDIndex, NumpyLike, Shape, Tile, Vec
+
 from ._util import crop_to, rescale_crop
 
 _Op = Callable[[Tile], tuple[Tile, ...]]

@@ -24,7 +24,7 @@ import numpy as np
 from packaging.version import Version
 
 from bipl._env import env
-from bipl.ops import Span
+from bipl._types import Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel

@@ -31,7 +31,7 @@ from glow import shared_call, si_bin, sizeof
 from numpy.lib.stride_tricks import as_strided
 
 from bipl._env import env
-from bipl.ops import Shape, Span
+from bipl._types import Shape, Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel

@@ -9,7 +9,7 @@ import numpy as np
 from osgeo import gdal, gdal_array
 from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
-from bipl.ops import Span
+from bipl._types import Span
 
 from ._slide_bases import Driver, ImageLevel
 from ._util import gdal_parse_mpp

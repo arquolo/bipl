@@ -11,8 +11,7 @@ import cv2
 import numpy as np
 
 from bipl import env
-
-from ._types import NumpyLike, Span, Tile, Vec
+from bipl._types import NumpyLike, Span, Tile, Vec
 
 
 def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:

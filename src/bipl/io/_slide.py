@@ -5,7 +5,7 @@ import os
 import sys
 import warnings
 from bisect import bisect_right
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import final, overload
@@ -15,7 +15,8 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl.ops import Normalizer, Shape, Vec, normalize_loc, rescale_crop
+from bipl._types import HasParts, Patch, Shape, Span, Vec
+from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
 from ._slide_bases import Driver, Image, ImageLevel
 from ._util import round2
@@ -98,7 +99,7 @@ def _cached_open(path: str) -> 'Slide':
 
 @final
 @dataclass(frozen=True)
-class Slide:
+class Slide(HasParts):
     """Usage:
     ```
     slide = Slide.open('test.svs')
@@ -253,6 +254,14 @@ class Slide:
         y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
         r = self.levels[0].part(y_loc, x_loc)
         return r[:, :, c_loc]
+
+    def part(self, *loc: Span) -> np.ndarray:
+        return self.levels[0].part(*loc)
+
+    def parts(self,
+              locs: Sequence[tuple[Span, ...]],
+              max_workers: int = 0) -> Iterator[Patch]:
+        return self.levels[0].parts(locs, max_workers=max_workers)
 
     def numpy(self) -> np.ndarray:
         return self.levels[0].numpy()

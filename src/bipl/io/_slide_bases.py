@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 
 from bipl import env
-from bipl.ops import (Shape, Span, Tile, get_fusion, normalize_loc,
-                      rescale_crop, resize)
+from bipl._types import HasParts, Shape, Span, Tile
+from bipl.ops import get_fusion, normalize_loc, rescale_crop, resize
 
 if TYPE_CHECKING:
     from ._util import Icc
@@ -50,15 +50,11 @@ class Image:
 
 
 @dataclass(frozen=True)
-class ImageLevel(Image):
+class ImageLevel(Image, HasParts):
     @final
     @property
     def key(self) -> None:
         return None
-
-    def part(self, *loc: Span) -> np.ndarray:
-        """Reads crop of LOD. Overridable"""
-        raise NotImplementedError
 
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
