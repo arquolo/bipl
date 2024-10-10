@@ -106,15 +106,83 @@ class _Planarity(Enum):
     # SEPARATE = 2  # Separate buffers for each R/G/B plane. TODO: support
 
 
-class _Tag:  # noqa: PIE795,RUF100
+class _Orientation(Enum):
+    # fmt: off
+    TOP_LEFT = 1      # [y, x]
+    TOP_RIGHT = 2     # [y, -x] -> im[:, ::-1]
+    BOTTOM_RIGHT = 3  # [-y, -x] -> im[::-1, ::-1]
+    BOTTOM_LEFT = 4   # [-y, x]  -> im[::-1]
+    LEFT_TOP = 5      # [x, y] -> im.transpose(1, 0, 2)
+    RIGHT_TOP = 6     # [-x, y] -> im.transpose(1, 0, 2)[:, ::-1]
+    RIGHT_BOTTOM = 7  # [-x, -y] -> im.transpose(1, 0, 2)[::-1, ::-1]
+    LEFT_BOTTOM = 8   # [x, -y] -> im.transpose(1, 0, 2)[::-1]
+    # fmt: on
+
+
+class _Tag(Enum):
+    # &1 = reduced resolution, &2 = page of multipage, &4 = transparency mask
+    NEW_SUBFILE_TYPE = 254
+    IMAGE_WIDTH = 256
+    IMAGE_HEIGHT = 257
+    BITS_PER_SAMPLE = 258
+    COMPRESSION = 259
+    COLORSPACE = 262
     DESCRIPTION = 270
     MAKE = 271
+    MODEL = 272
+    STRIP_OFFSETS = 273
+    ORIENTATION = 274
+    SAMPLES_PER_PIXEL = 277
+    STRIP_HEIGHT = 278
+    STRIP_NBYTES = 279
+    RES_X = 282
+    RES_Y = 283
+    PLANAR = 284
+    RES_UNIT = 296
+    SOFTWARE = 305
+    DATETIME = 306
+    ARTIST = 315
+    PREDICTOR = 317
+    TILE_WIDTH = 322
+    TILE_HEIGHT = 323
     TILE_OFFSETS = 324
-    TILE_BYTE_COUNTS = 325
+    TILE_NBYTES = 325
+    SAMPLE_FORMAT = 339
+    SAMPLE_MIN = 340
+    SAMPLE_MAX = 341
     JPEG_TABLES = 347
     BACKGROUND_COLOR = 434
+    YUV_COEFFICIENTS = 529
+    YUV_SUBSAMPLING = 530
+    YUV_POSITIONING = 531
+    REF_BLACK_WHITE = 532
     XMP = 700
+    IMAGE_DEPTH = 32997
     ICC_PROFILE = 34675
+    NDPI_VERSION = 65420  # 1 for any NDPI
+    SOURCE_LENS = 65421  # macro = -1, map of non-empty regions = -2
+    OFFSET_X = 65422
+    OFFSET_Y = 65423
+    OFFSET_Z = 65424
+    # = 65425
+    # = 65426  # Low 32 bits of optimisation entries
+    REFERENCE = 65427
+    AUTH_CODE = 65428
+    # = 65432  # High 32 bits of optimisation entries
+    # = 65433
+    # = 65439
+    # = 65440
+    # = 65441  # 0?
+    SCANNER_SERIAL_NUMBER = 65442
+    # = 65443  # 0 or 16?
+    # = 65444  # 80?
+    # = 65445  # 0, 2 or 10?
+    # = 65446  # 0?
+    # = 65449  # ASCII metadata, key=value pairs
+    # = 65455  # 13?
+    # = 65456  # 101?
+    # = 65457  # 0?
+    # = 65458  # 0?
     JPEGCOLORMODE = 65538
 
 
@@ -122,20 +190,20 @@ class _Tags:
     def __init__(self, ptr) -> None:
         self._ptr = ptr
 
-        compression, = self._get(c_uint16, 259)
+        compression, = self._get(c_uint16, _Tag.COMPRESSION)
         self.compression = _Compression(compression)
 
-        planarity, = self._get(c_uint16, 284)
+        planarity, = self._get(c_uint16, _Tag.PLANAR)
         self.planarity = _Planarity(planarity)  # TODO: use later
 
-        self.spp, = self._get(c_uint16, 277)
+        self.spp, = self._get(c_uint16, _Tag.SAMPLES_PER_PIXEL)
 
         # ! crashes, but should work according to openslide docs
-        # self.is_hamamatsu = bool(self._get(c_uint16, 65420))
+        # self.is_hamamatsu = bool(self._get(c_uint16, _Tag.NDPI_VERSION))
 
-        self.bps, = self._get(c_uint16, 339) or [1]
+        self.bps, = self._get(c_uint16, _Tag.SAMPLE_FORMAT) or [1]
 
-        ics, = self._get(c_uint16, 262)
+        ics, = self._get(c_uint16, _Tag.COLORSPACE)
         self.color = _ColorSpace(ics)
         self.subsampling = (1, 1)
 
@@ -147,7 +215,8 @@ class _Tags:
         if self.color is _ColorSpace.YCBCR:
             self.gray = np.array([.299, .587, .114], 'f4')
             gray_ptr = POINTER(c_float)()
-            if TIFF.TIFFGetField(self._ptr, 529, byref(gray_ptr)):
+            if TIFF.TIFFGetField(self._ptr, _Tag.YUV_COEFFICIENTS.value,
+                                 byref(gray_ptr)):
                 self.gray = np.ctypeslib.as_array(gray_ptr, [3]).copy()
 
             # YCbCr subsampling H/W, i.e:
@@ -161,13 +230,16 @@ class _Tags:
             #  (2 2) = 4:2:0 (c_c_/____), 50% H, 50% W - a.k.a. YUV-NV12
             # 10bps:
             #  (2 4) = 4:1:0 (c___/____), 50% H, 25% W
-            ss_w, ss_h = self._get_varargs((c_uint16, c_uint16), 530) or (2, 2)
+            ss_w, ss_h = self._get_varargs(
+                (c_uint16, c_uint16), _Tag.YUV_SUBSAMPLING) or (2, 2)
             self.subsampling = ss_h, ss_w
 
-            self.yuv_centered = 2 not in self._get(c_uint16, 531)
+            self.yuv_centered = 2 not in self._get(c_uint16,
+                                                   _Tag.YUV_POSITIONING)
 
             bw_ptr = POINTER(c_float)()
-            if TIFF.TIFFGetField(self._ptr, 532, byref(bw_ptr)):
+            if TIFF.TIFFGetField(self._ptr, _Tag.REF_BLACK_WHITE.value,
+                                 byref(bw_ptr)):
                 self.yuv_bw = np.ctypeslib.as_array(bw_ptr, [3, 2])
 
             self.jpcm, = self._get(c_int, _Tag.JPEGCOLORMODE)
@@ -175,38 +247,38 @@ class _Tags:
         self.icc = None
         icc_size = c_int()
         icc_ptr = c_char_p()
-        if TIFF.TIFFGetField(self._ptr, _Tag.ICC_PROFILE, byref(icc_size),
+        if TIFF.TIFFGetField(self._ptr,
+                             _Tag.ICC_PROFILE.value, byref(icc_size),
                              byref(icc_ptr)) and icc_size.value > 0:
             self.icc = Icc(string_at(icc_ptr, icc_size.value))
 
-    def _get(
-        self,
-        tp: type['ctypes._SimpleCData[_T]'],
-        *tags: int,
-    ) -> tuple[_T, ...]:
+    def _get(self, tp: type['ctypes._SimpleCData[_T]'], *tags:
+             _Tag) -> tuple[_T, ...]:
         values: list[_T] = []
         for tag in tags:
             cv = tp()
-            if TIFF.TIFFGetField(self._ptr, c_uint32(tag), byref(cv)):
+            t = tag.value if isinstance(tag, _Tag) else tag
+            if TIFF.TIFFGetField(self._ptr, c_uint32(t), byref(cv)):
                 values.append(cv.value)
         return *values,
 
-    def _get_str(self, tag: int) -> str:
+    def _get_str(self, tag: _Tag) -> str:
         values = self._get(c_char_p, tag)
         if not values:
             return ''
         return (values[0] or b'').decode()
 
     def _get_varargs(self, tps: tuple[type['ctypes._SimpleCData[_T]'], ...],
-                     tag: int) -> tuple[_T, ...]:
+                     tag: _Tag) -> tuple[_T, ...]:
         cvs = *(tp() for tp in tps),
-        if TIFF.TIFFGetField(self._ptr, c_uint32(tag), *map(byref, cvs)):
+        if TIFF.TIFFGetField(self._ptr, c_uint32(tag.value), *map(byref, cvs)):
             return *(cv.value for cv in cvs),
         return ()
 
     @property
     def image_shape(self) -> Shape:
-        shape = *self._get(c_uint32, 257, 256), self.spp
+        shape = *self._get(c_uint32, _Tag.IMAGE_HEIGHT,
+                           _Tag.IMAGE_WIDTH), self.spp
         if len(shape) != 3:
             raise ValueError(f'TIFF: Bad image shape - {shape}')
         return shape
@@ -215,7 +287,8 @@ class _Tags:
     def tile_shape(self) -> Shape | None:
         if not TIFF.TIFFIsTiled(self._ptr):
             return None
-        tile = *self._get(c_uint32, 323, 322), self.spp
+        tile = *self._get(c_uint32, _Tag.TILE_HEIGHT,
+                          _Tag.TILE_WIDTH), self.spp
         if len(tile) != 3:
             raise ValueError(f'TIFF: Bad tile shape - {tile}')
         return tile
@@ -225,14 +298,16 @@ class _Tags:
         grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile_shape)),
 
         ptr = POINTER(c_uint64)()
-        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS, byref(ptr)):
+        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_OFFSETS.value,
+                                 byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile offsets table present')
         tbs: _U64 = np.ctypeslib.as_array(ptr, grid_shape).copy()
         # TIFF._TIFFfree(tbc_ptr)  # TODO: ensure no segfault
 
         ptr = POINTER(c_uint64)()
-        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_BYTE_COUNTS, byref(ptr)):
+        if not TIFF.TIFFGetField(self._ptr, _Tag.TILE_NBYTES.value,
+                                 byref(ptr)):
             raise ValueError('TIFF has tiled image, but no '
                              'tile size table present')
         tbc: _U64 = np.ctypeslib.as_array(ptr, grid_shape).copy()
@@ -246,8 +321,9 @@ class _Tags:
                 jpt = None
                 size = c_int()
                 ptr = c_char_p()
-                if (TIFF.TIFFGetField(self._ptr, _Tag.JPEG_TABLES, byref(size),
-                                      byref(ptr)) and size.value > 4):
+                if (TIFF.TIFFGetField(self._ptr, _Tag.JPEG_TABLES.value,
+                                      byref(size), byref(ptr))
+                        and size.value > 4):
                     jpt = string_at(ptr, size.value)
                     # TIFF._TIFFfree(ptr)  # TODO: ensure no segfault
                 return _JpegDecoder(jpt, self.color.name)
@@ -265,7 +341,7 @@ class _Tags:
         bg_hex = b'FFFFFF'
         bg_color_ptr = c_char_p()
         # TODO: find sample file to test this path. Never reached
-        if TIFF.TIFFGetField(self._ptr, _Tag.BACKGROUND_COLOR,
+        if TIFF.TIFFGetField(self._ptr, _Tag.BACKGROUND_COLOR.value,
                              byref(bg_color_ptr)):
             bg_hex = string_at(bg_color_ptr, 3)
             # TIFF._TIFFfree(bg_color_ptr)  # TODO: ensure no segfault
@@ -284,7 +360,8 @@ class _Tags:
             case 'ventana':  # BIF of Roche
                 xmp_size = c_int()
                 xmp_ptr = c_char_p()
-                if TIFF.TIFFGetField(self._ptr, _Tag.XMP, byref(xmp_size),
+                if TIFF.TIFFGetField(self._ptr,
+                                     _Tag.XMP.value, byref(xmp_size),
                                      byref(xmp_ptr)) and xmp_size.value > 0:
                     xmp = string_at(xmp_ptr, xmp_size.value)
                     if meta := get_ventana_properties(xmp, index):
@@ -325,8 +402,8 @@ class _Tags:
             # Ventana messes with TIFF tag XResolution, YResolution
             return float(mpp_s) if (mpp_s := meta.get('ScanRes')) else None
 
-        if pixels_per_unit := self._get(c_float, 283, 282):
-            res_unit_kind, = self._get(c_uint16, 296)
+        if pixels_per_unit := self._get(c_float, _Tag.RES_Y, _Tag.RES_X):
+            res_unit_kind, = self._get(c_uint16, _Tag.RES_UNIT)
             if res_unit := _RESOLUTION_UNITS.get(res_unit_kind):
                 mpp_xy = [res_unit / ppu for ppu in pixels_per_unit if ppu]
                 if mpp_xy and (mpp := float(np.mean(mpp_xy))):
@@ -493,6 +570,8 @@ class _Level(ImageLevel, _BaseImage):
             return np.broadcast_to(self.fill, out_shape)
 
         iloc: tuple[range, ...]
+        t_crops: tuple[list[slice], ...]
+        o_crops: tuple[list[slice], ...]
         iloc, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
             *map(self._make_index, box[:, 0], bmin, bmax, (th, tw)))
 
@@ -503,12 +582,8 @@ class _Level(ImageLevel, _BaseImage):
         out[y0:y1, :x0] = self.fill
         out[y0:y1, x1:] = self.fill
         out[y1:] = self.fill
-        for part, (oy, ox), (ty, tx) in zip(parts, product(*o_crops),
-                                            product(*t_crops)):
-            if part is None:
-                out[slice(*oy), slice(*ox)] = self.fill
-            else:
-                out[slice(*oy), slice(*ox)] = part[slice(*ty), slice(*tx)]
+        for part, oyx, tyx in zip(parts, product(*o_crops), product(*t_crops)):
+            out[oyx] = self.fill if part is None else part[tyx]
         return out
 
     def _make_index(
@@ -517,7 +592,7 @@ class _Level(ImageLevel, _BaseImage):
         vmin: int,
         vmax: int,
         tile_size: int,
-    ) -> tuple[range, np.ndarray, np.ndarray, list]:
+    ) -> tuple[range, list[slice], list[slice], list]:
         lo = vmin // tile_size
         hi = -(-vmax // tile_size)
         n = hi - lo
@@ -534,7 +609,12 @@ class _Level(ImageLevel, _BaseImage):
         # (lo/hi), region of `out` to fill
         o_span = o_crops[[0, -1], [0, 1]].tolist()
 
-        return range(lo, hi), t_crops, o_crops, o_span
+        return (
+            range(lo, hi),
+            [slice(*t) for t in t_crops.tolist()],
+            [slice(*o) for o in o_crops.tolist()],
+            o_span,
+        )
 
     def flip(self) -> '_Level':
         h, w, c = self.shape
