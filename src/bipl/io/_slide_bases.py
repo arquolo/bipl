@@ -96,6 +96,8 @@ class ImageLevel(Image, HasParts):
             scale *= downsample
             base = TiledProxyLevel((bh, bw, bc), base, downsample, r_tile)
 
+        if scale == 1 or base.shape == (h, w, c):
+            return base
         return ProxyLevel((h, w, c), scale, base)
 
     def decimate(self, steps: int) -> 'tuple[int, ImageLevel]':
