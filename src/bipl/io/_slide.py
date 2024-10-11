@@ -19,7 +19,6 @@ from bipl._types import HasParts, Patch, Shape, Span, Vec
 from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
 from ._slide_bases import Driver, Image, ImageLevel
-from ._util import round2
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -141,10 +140,10 @@ class Slide(HasParts):
         extras: dict[str, Image] = {}
         for idx in range(num_images):
             match driver[idx]:
-                case ImageLevel(shape=shape) as im:
+                case ImageLevel() as im:
                     if levels:
-                        ds = round2(levels[1].shape[0] / shape[0])
-                        levels[ds] = im.fallback(levels[1], ds)
+                        ds, im = im.join(levels[1])
+                        levels[ds] = im
                     else:
                         levels[1] = im
                 case Image(key=str(key)) as im:
@@ -231,11 +230,11 @@ class Slide(HasParts):
         ds = self.downsamples[idx]
         lv = self.levels[idx]
 
-        # Make octave level as close as possible to target
-        while (ds_ := ds * 2) < downsample and (lv_ := lv.octave()):
-            ds, lv = ds_, lv_
+        # Make 2^k level as close as possible to target
+        steps = max(int(downsample / ds).bit_length() - 1, 0)
+        steps, lv = lv.decimate(steps)
 
-        return ds, lv
+        return ds << steps, lv
 
     def resample(self, mpp: float, *, tol: float = 0.01) -> ImageLevel:
         """Resample slide to specific resolution"""

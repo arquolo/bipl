@@ -1,8 +1,8 @@
 __all__ = ['Driver', 'Image', 'ImageLevel']
 
 import re
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass, replace
 from math import ceil
 from typing import TYPE_CHECKING, final
 
@@ -10,8 +10,10 @@ import cv2
 import numpy as np
 
 from bipl import env
-from bipl._types import HasParts, Shape, Span, Tile
+from bipl._types import HasParts, Patch, Shape, Span, Tile
 from bipl.ops import get_fusion, normalize_loc, rescale_crop, resize
+
+from ._util import round2
 
 if TYPE_CHECKING:
     from ._util import Icc
@@ -44,9 +46,6 @@ class Image:
     @property
     def icc(self) -> 'Icc | None':
         return None
-
-    def flip(self) -> 'Image':
-        return self
 
 
 @dataclass(frozen=True)
@@ -99,14 +98,12 @@ class ImageLevel(Image, HasParts):
 
         return ProxyLevel((h, w, c), scale, base)
 
-    def octave(self) -> 'ImageLevel | None':
-        return None
+    def decimate(self, steps: int) -> 'tuple[int, ImageLevel]':
+        return (0, self)
 
-    def flip(self) -> 'ImageLevel':
-        return self
-
-    def fallback(self, lv: 'ImageLevel', ds: int) -> 'ImageLevel':
-        return self
+    def join(self, lv: 'ImageLevel') -> 'tuple[int, ImageLevel]':
+        ds = round2(lv.shape[0] / self.shape[0])
+        return ds, self
 
     def _unpack_2d_loc(self, *loc:
                        Span) -> tuple[np.ndarray, np.ndarray, Shape]:
@@ -134,10 +131,9 @@ class ImageLevel(Image, HasParts):
     def apply(  # type: ignore[override]
         self,
         fn: Callable[[np.ndarray], np.ndarray],
-        pad: int = 0,
     ) -> '_LambdaLevel':
         # _LambdaLevel is not subclass of _LambdaImage
-        return _LambdaLevel(self.shape, self, fn, pad)
+        return _LambdaLevel(self.shape, self, fn)
 
 
 @dataclass(frozen=True)
@@ -154,16 +150,20 @@ class _LambdaImage(Image):
 class _LambdaLevel(ImageLevel):
     base: ImageLevel
     fn: Callable[[np.ndarray], np.ndarray]
-    pad: int = 64
 
     def part(self, *loc: Span) -> np.ndarray:
-        if self.pad:
-            loc = *((lo - self.pad, hi + self.pad) for lo, hi in loc),
         im = self.base.part(*loc)
-        im = self.fn(im)
-        if self.pad:
-            return im[self.pad:-self.pad, self.pad:-self.pad, :]
-        return im
+        return self.fn(im)
+
+    def parts(self,
+              locs: Sequence[tuple[Span, ...]],
+              max_workers: int = 0) -> Iterator[Patch]:
+        for loc, data in self.base.parts(locs, max_workers):
+            yield Patch(loc, self.fn(data))
+
+    def decimate(self, steps: int) -> tuple[int, ImageLevel]:
+        ds, base = self.base.decimate(steps)
+        return ds, replace(self, shape=base.shape, base=base)
 
 
 @dataclass(frozen=True)

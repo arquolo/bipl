@@ -427,7 +427,6 @@ class _Tags:
 @dataclass(frozen=True)
 class _BaseImage(Image):
     icc_impl: Icc | None
-    flipped: bool
 
     @property
     def icc(self) -> Icc | None:
@@ -470,12 +469,7 @@ class _Image(_BaseImage):
 
         rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        im = np.asarray(rgba[..., :3], 'u1')
-        return im.swapaxes(0, 1) if self.flipped else im
-
-    def flip(self) -> '_Image':
-        h, w, c = self.shape
-        return replace(self, shape=(w, h, c), flipped=not self.flipped)
+        return np.asarray(rgba[..., :3], 'u1')
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,24 +487,29 @@ class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: _U64 = field(repr=False)
     tile_shape: Shape
-    order: str | None
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
     fill: _U8
-    pool: int
+    decimations: int  # [0, 1, 2, ..., n]
 
-    def octave(self) -> '_Level | None':
+    def decimate(self, num_steps: int) -> 'tuple[int, _Level]':
         th, tw, tc = self.tile_shape
-        if th % 2 or tw % 2:
-            return None
 
+        downsamples = 2 ** np.arange(num_steps + 1)
+        ids, = ((th % downsamples == 0) & (tw % downsamples == 0)).nonzero()
+        num_steps = ids.max()
+        if num_steps == 0:  # Failed to decimate
+            return (0, self)
+
+        ds = downsamples[num_steps]
         h, w, c = self.shape
-        return replace(
+        lv = replace(
             self,
-            shape=((h + 1) // 2, (w + 1) // 2, c),
-            tile_shape=(th // 2, tw // 2, tc),
-            pool=self.pool * 2,
+            shape=((h + ds - 1) // ds, (w + ds - 1) // ds, c),
+            tile_shape=(th // ds, tw // ds, tc),
+            decimations=self.decimations + num_steps,
         )
+        return (num_steps, lv)
 
     def __eq__(self, rhs) -> bool:
         return (type(self) is type(rhs) and self.memo is rhs.memo
@@ -520,19 +519,19 @@ class _Level(ImageLevel, _BaseImage):
         return hash(self.memo) ^ hash(self.shape)
 
     @shared_call  # Thread safety
-    def tile(self, *loc: int) -> _U8 | None:
-        lo, hi = self.spans[loc].tolist()
+    def tile(self, *idx: int) -> _U8 | None:
+        lo, hi = self.spans[idx].tolist()
         if lo == hi:  # If nothing to read, don't read
             return None
-        return self._get_tile_raw(lo, hi, *loc)
+        return self._get_tile_raw(lo, hi, *idx)
 
-    def _get_tile_raw(self, lo: int, hi: int, *loc: int) -> _U8:
+    def _get_tile_raw(self, lo: int, hi: int, *idx: int) -> _U8:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        key = (*self.shape, *loc)
+        key = (*self.shape, *idx)
 
         # Cache hit
         if (im := self.cache[key]) is not None:
@@ -544,13 +543,10 @@ class _Level(ImageLevel, _BaseImage):
 
         # Resize if level is pooled
         th, tw = self.tile_shape[:2]
-        if im.shape[:2] != (th, tw):
-            if self.pool > 2:
-                im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
-            else:
-                im = cv2.resize(im, (tw, th))
-        if self.flipped:
-            im = im.swapaxes(0, 1)
+        if self.decimations == 1:
+            im = cv2.resize(im, (tw, th))
+        elif self.decimations >= 2:
+            im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
         self.cache[key] = im  # type: ignore
         return im  # type: ignore
@@ -616,34 +612,24 @@ class _Level(ImageLevel, _BaseImage):
             o_span,
         )
 
-    def flip(self) -> '_Level':
-        h, w, c = self.shape
-        th, tw, tc = self.tile_shape
-        reorder = {'C': 'F', 'F': 'C', None: None}
-        return replace(
-            self,
-            shape=(w, h, c),
-            flipped=not self.flipped,
-            spans=self.spans.swapaxes(0, 1),
-            tile_shape=(tw, th, tc),
-            order=reorder[self.order],
-        )
-
 
 @dataclass(eq=False, frozen=True)
 class _AperioLevel(_Level):
-    def fallback(self, lv: ImageLevel, ds: int) -> '_Level':
-        while ds != 1 and (lv_ := lv.octave()):
-            ds //= 2
-            lv = lv_
-        if ds != 1:
-            lv = ProxyLevel(self.shape, 1 / ds, lv)
+    def join(self, lv: ImageLevel) -> 'tuple[int, _Level]':
+        ds, _ = super().join(lv)
+
+        steps = max(ds.bit_length() - 1, 0)
+        steps, lv = lv.decimate(steps)
+        lv_ds = 2 ** steps
+
+        if lv_ds != ds:
+            lv = ProxyLevel(self.shape, lv_ds / ds, lv)
 
         if not isinstance(self, _AperioSubLevel):
             r = {f.name: getattr(self, f.name) for f in fields(self)}
-            return _AperioSubLevel(**r, prev=lv)
+            return ds, _AperioSubLevel(**r, prev=lv)
 
-        return replace(self, prev=lv)
+        return ds, replace(self, prev=lv)
 
 
 @dataclass(eq=False, frozen=True)
@@ -651,14 +637,14 @@ class _AperioSubLevel(_AperioLevel):
     prev: ImageLevel
 
     @shared_call  # Thread safety
-    def tile(self, *loc: int) -> _U8 | None:
-        lo, hi = self.spans[loc].tolist()
+    def tile(self, *idx: int) -> _U8 | None:
+        lo, hi = self.spans[idx].tolist()
         if lo == hi:  # Read tile from backup level
-            iy, ix, _ = loc
+            iy, ix, _ = idx
             th, tw = self.tile_shape[:2]
             return self.prev[iy * th:iy * th + th, ix * tw:ix * tw + tw]
 
-        return self._get_tile_raw(lo, hi, *loc)
+        return self._get_tile_raw(lo, hi, *idx)
 
 
 class Tiff(Driver):
@@ -722,18 +708,32 @@ class Tiff(Driver):
         tile_shape = tags.tile_shape
 
         if tile_shape is None:  # Not tiled
-            return _Image(shape, tags.icc, False, self, head, index)
+            return _Image(
+                shape=shape,
+                icc_impl=tags.icc,
+                tiff=self,
+                head=head,
+                index=index,
+            )
 
         spans = tags.tile_spans(shape, tile_shape)
-        order = _detect_tile_order(spans[..., 0])
 
         # Aperio can choke on non-L0 levels. Read those from L0 to fix.
         # `openslide` does this for us, delegate to it.
         if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
             raise ValueError('Found 0s in tile size table')
 
-        return _Level(shape, tags.icc, False, self._memo, spans, tile_shape,
-                      order, tags.get_decoder(), self.cache, self._bg_color, 1)
+        return _Level(
+            shape=shape,
+            icc_impl=tags.icc,
+            memo=self._memo,
+            spans=spans,
+            tile_shape=tile_shape,
+            decode=tags.get_decoder(),
+            cache=self.cache,
+            fill=self._bg_color,
+            decimations=0,
+        )
 
     def __getitem__(self, index: int) -> Image | None:
         with self.ifd(index):
@@ -757,13 +757,14 @@ def _detect_tile_order(start: npt.NDArray[np.integer]) -> str | None:
 # ------------------------------- tile caching -------------------------------
 
 
-@dataclass(repr=False, slots=True)
 class _CacheZYXC:
-    lock: Lock = field(default_factory=Lock, repr=False)
-    used: int = 0
-    keys: list[tuple] = field(default_factory=list, repr=False)
-    # IYXC -> (size, buf)
-    buf: dict[tuple, tuple[int, _U8]] = field(default_factory=dict, repr=False)
+    __slots__ = ('lock', 'used', 'keys', 'buf')
+
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.used: int = 0
+        self.keys: list[tuple] = []
+        self.buf: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
 
     def __repr__(self) -> str:
         return (f'{type(self).__name__}'

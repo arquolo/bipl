@@ -404,7 +404,7 @@ class _ArrayTiles(Tiles):
         """Precompute tile coordinates: 2D index & Y/X-slices"""
         iys, ixs = self.cells.nonzero()
         boxes = locs[iys, ixs].tolist()
-        return [(i, ys, xs)
+        return [(i, Span(ys), Span(xs))
                 for i, (ys, xs) in zip(zip(iys.tolist(), ixs.tolist()), boxes)]
 
     def _drop_overlaps(self,
