@@ -43,5 +43,7 @@ class Env(BaseSettings):
     BIPL_ICC: bool = False  # Apply image color correction
     BIPL_NORM: bool = False  # Normalize luminance
 
+    BIPL_MPP_Q: int = 12  # 2^(1/Q) MPP rounding (default 1.06x step)
+
 
 env = Env()

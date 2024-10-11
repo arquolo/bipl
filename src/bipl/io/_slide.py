@@ -160,6 +160,9 @@ class Slide(HasParts):
         if mpp is None:  # If no override is passed, use native if present
             mpp = driver.get_mpp()
 
+        if mpp is not None and env.BIPL_MPP_Q:
+            mpp = 2 ** (round(np.log2(mpp) * env.BIPL_MPP_Q) / env.BIPL_MPP_Q)
+
         return Slide(
             path=path,
             shape=levels[1].shape,
