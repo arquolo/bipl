@@ -47,7 +47,7 @@ def _fix_if_url(s: str, /) -> str:
 # TODO: handle associated images via `base.Image`
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _Level(ImageLevel):
     g: 'Gdal'
     bands: tuple[gdal.Band, ...]
@@ -69,11 +69,12 @@ class _Level(ImageLevel):
 
         # TODO: add pad if necessary
         rgb = chw.transpose(1, 2, 0)
-        return self._expand(rgb, valid_box, box, self.g.bg_color)
+        rgb = self._expand(rgb, valid_box, box, self.g.bg_color)
+        return self._postprocess(rgb)
 
 
 class Gdal(Driver):
-    def __init__(self, path: str):
+    def __init__(self, path: str) -> None:
         path = _fix_if_url(path)
         self.ds: gdal.Dataset = gdal.OpenEx(path, gdal.GA_ReadOnly)
 
@@ -112,7 +113,7 @@ class Gdal(Driver):
             b if index == 0 else b.GetOverview(index - 1) for b in self._bands)
 
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
-        return _Level(shape, self, bands)
+        return _Level(shape, g=self, bands=bands)
 
     def keys(self) -> list[str]:
         return []  # TODO: fill if GDAL can detect auxilary images

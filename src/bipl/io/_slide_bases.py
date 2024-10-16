@@ -2,9 +2,9 @@ __all__ = ['Driver', 'Image', 'ImageLevel']
 
 import re
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from math import ceil
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Self, final
 
 import cv2
 import numpy as np
@@ -26,6 +26,8 @@ _MIN_TILE = 256
 class Image:
     shape: Shape
     dtype = np.dtype(np.uint8)
+    post: list[Callable[[np.ndarray],
+                        np.ndarray]] = field(default_factory=list)
 
     @property
     def key(self) -> str | None:
@@ -40,8 +42,13 @@ class Image:
         """numpy.array compatibility"""
         return self.numpy()
 
-    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> '_LambdaImage':
-        return _LambdaImage(self.shape, self, fn)
+    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> Self:
+        return replace(self, post=[*self.post, fn])
+
+    def _postprocess(self, im: np.ndarray) -> np.ndarray:
+        for fn in self.post:
+            im = fn(im)
+        return im
 
     @property
     def icc(self) -> 'Icc | None':
@@ -74,10 +81,11 @@ class ImageLevel(Image, HasParts):
         if scale == 1:
             return self
 
-        base = self
-        if isinstance(base, ProxyLevel):
-            scale = base.scale * scale
-            base = base.base
+        if isinstance(self, ProxyLevel):
+            scale = self.scale * scale
+            base = replace(self.base, post=self.post)
+        else:
+            base = self
 
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
@@ -94,11 +102,22 @@ class ImageLevel(Image, HasParts):
                       (bw + downsample - 1) // downsample)
 
             scale *= downsample
-            base = TiledProxyLevel((bh, bw, bc), base, downsample, r_tile)
+            base = TiledProxyLevel(
+                (bh, bw, bc),
+                post=base.post,
+                base=replace(base, post=[]),
+                downsample=downsample,
+                r_tile=r_tile,
+            )
 
         if scale == 1 or base.shape == (h, w, c):
             return base
-        return ProxyLevel((h, w, c), scale, base)
+        return ProxyLevel(
+            (h, w, c),
+            post=base.post,
+            scale=scale,
+            base=replace(base, post=[]),
+        )
 
     def decimate(self, steps: int) -> 'tuple[int, ImageLevel]':
         return (0, self)
@@ -129,56 +148,19 @@ class ImageLevel(Image, HasParts):
                                      None, bg_color.tolist())
         return np.ascontiguousarray(rgb)
 
-    @final
-    def apply(  # type: ignore[override]
-        self,
-        fn: Callable[[np.ndarray], np.ndarray],
-    ) -> '_LambdaLevel':
-        # _LambdaLevel is not subclass of _LambdaImage
-        return _LambdaLevel(self.shape, self, fn)
 
-
-@dataclass(frozen=True)
-class _LambdaImage(Image):
-    base: Image
-    fn: Callable[[np.ndarray], np.ndarray]
-
-    def numpy(self) -> np.ndarray:
-        im = self.base.numpy()
-        return self.fn(im)
-
-
-@dataclass(frozen=True)
-class _LambdaLevel(ImageLevel):
-    base: ImageLevel
-    fn: Callable[[np.ndarray], np.ndarray]
-
-    def part(self, *loc: Span) -> np.ndarray:
-        im = self.base.part(*loc)
-        return self.fn(im)
-
-    def parts(self,
-              locs: Sequence[tuple[Span, ...]],
-              max_workers: int = 0) -> Iterator[Patch]:
-        for loc, data in self.base.parts(locs, max_workers):
-            yield Patch(loc, self.fn(data))
-
-    def decimate(self, steps: int) -> tuple[int, ImageLevel]:
-        ds, base = self.base.decimate(steps)
-        return ds, replace(self, shape=base.shape, base=base)
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ProxyLevel(ImageLevel):
     scale: float
     base: ImageLevel
 
     def part(self, *loc: Span) -> np.ndarray:
-        return rescale_crop(
+        im = rescale_crop(
             self.base, *loc, scale=1 / self.scale, interpolation=1)
+        return self._postprocess(im)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TiledProxyLevel(ImageLevel):
     base: ImageLevel
     downsample: int
@@ -213,7 +195,7 @@ class TiledProxyLevel(ImageLevel):
         )
         image = get_fusion(r_tiles, r_shape)
         assert image is not None
-        return image
+        return self._postprocess(image)
 
 
 class Driver:

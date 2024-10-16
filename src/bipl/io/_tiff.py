@@ -344,14 +344,14 @@ class _Tags:
 
 @dataclass(frozen=True)
 class _BaseImage(Image):
-    icc_impl: Icc | None
+    icc_impl: Icc | None = None
 
     @property
     def icc(self) -> Icc | None:
         return self.icc_impl
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _Image(_BaseImage):
     tiff: 'Tiff'
     head: str
@@ -387,7 +387,8 @@ class _Image(_BaseImage):
 
         rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
         # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        return np.asarray(rgba[..., :3], 'u1')
+        rgb = np.asarray(rgba[..., :3], 'u1')
+        return self._postprocess(rgb)
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,15 +401,20 @@ class _JpegDecoder:
             buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB')
 
 
-@dataclass(eq=False, frozen=True)
+@dataclass(eq=False, frozen=True, kw_only=True)
 class _Level(ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: _U64 = field(repr=False)
     tile_shape: Shape
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
-    fill: _U8
-    decimations: int  # [0, 1, 2, ..., n]
+    fill_orig: _U8 = field(repr=False)
+    fill: _U8 = field(
+        init=False, default_factory=lambda: np.full(3, 255, 'u1'))
+    decimations: int = 0  # [0, 1, 2, ..., n]
+
+    def __post_init__(self) -> None:
+        self.fill[:] = self._postprocess(self.fill_orig[None, None])[0, 0, :]
 
     def decimate(self, num_steps: int) -> 'tuple[int, _Level]':
         th, tw, tc = self.tile_shape
@@ -449,7 +455,7 @@ class _Level(ImageLevel, _BaseImage):
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        key = (*self.shape, *idx)
+        key = (*self.shape, id(self), *idx)
 
         # Cache hit
         if (im := self.cache[key]) is not None:
@@ -466,7 +472,7 @@ class _Level(ImageLevel, _BaseImage):
         elif self.decimations >= 2:
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
-        self.cache[key] = im  # type: ignore
+        self.cache[key] = im = self._postprocess(im)  # type: ignore
         return im  # type: ignore
 
     def part(self, *loc: Span) -> _U8:
@@ -541,16 +547,16 @@ class _AperioLevel(_Level):
         lv_ds = 2 ** steps
 
         if lv_ds != ds:
-            lv = ProxyLevel(self.shape, lv_ds / ds, lv)
+            lv = ProxyLevel(self.shape, scale=lv_ds / ds, base=lv)
 
         if not isinstance(self, _AperioSubLevel):
-            r = {f.name: getattr(self, f.name) for f in fields(self)}
+            r = {f.name: getattr(self, f.name) for f in fields(self) if f.init}
             return ds, _AperioSubLevel(**r, prev=lv)
 
         return ds, replace(self, prev=lv)
 
 
-@dataclass(eq=False, frozen=True)
+@dataclass(eq=False, frozen=True, kw_only=True)
 class _AperioSubLevel(_AperioLevel):
     prev: ImageLevel
 
@@ -560,7 +566,8 @@ class _AperioSubLevel(_AperioLevel):
         if lo == hi:  # Read tile from backup level
             iy, ix, _ = idx
             th, tw = self.tile_shape[:2]
-            return self.prev[iy * th:iy * th + th, ix * tw:ix * tw + tw]
+            return self.prev.part((iy * th, iy * th + th),
+                                  (ix * tw, ix * tw + tw))
 
         return self._get_tile_raw(lo, hi, *idx)
 
@@ -582,13 +589,13 @@ class Tiff(Driver):
         with open(path, 'rb') as f:
             self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
-        self._ifds = list(map(_Tags, self._iter_ifds()))
+        self._ifds = list(self._iter_ifds())
 
         # Directory 0 is main
         self.vendor, self._head, self._meta, self.mpp, self._bg_color \
             = self._ifds[0].properties()
 
-    def _iter_ifds(self) -> Iterator[dict[_Tag, Any]]:
+    def _iter_ifds(self) -> Iterator[_Tags]:
         f = self._memo
         magic = f[:8]
 
@@ -627,13 +634,8 @@ class Tiff(Driver):
             # Jump to next IFD
             pos = np.frombuffer(f[pos:pos + usize], o_dt).item()
 
-    def _parse_ifd(
-        self,
-        f: '_File',
-        ts: np.ndarray,
-        o_dt: np.dtype,
-        dtypes: Mapping[int, np.dtype],
-    ) -> dict[_Tag, Any]:
+    def _parse_ifd(self, f: '_File', ts: np.ndarray, o_dt: np.dtype,
+                   dtypes: Mapping[int, np.dtype]) -> _Tags:
 
         m = np.isin(ts['tag'], _TAG_NAMES_A) & np.isin(ts['type'], _DTYPES_A)
         if (unknown := ts[~m][['tag', 'type']]).size:
@@ -681,7 +683,7 @@ class Tiff(Driver):
             if (v := tags.get(k)) is not None:
                 tags[k] = t(v)
 
-        return tags
+        return _Tags(tags)
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
@@ -722,7 +724,7 @@ class Tiff(Driver):
 
         if tile_shape is None:  # Not tiled
             return _Image(
-                shape=shape,
+                shape,
                 icc_impl=tags.ifd.get(_Tag.ICC_PROFILE),
                 tiff=self,
                 head=head,
@@ -737,15 +739,14 @@ class Tiff(Driver):
             raise ValueError('Found 0s in tile size table')
 
         return _Level(
-            shape=shape,
+            shape,
             icc_impl=tags.ifd.get(_Tag.ICC_PROFILE),
             memo=self._memo,
             spans=spans,
             tile_shape=tile_shape,
             decode=tags.get_decoder(),
             cache=self.cache,
-            fill=self._bg_color,
-            decimations=0,
+            fill_orig=self._bg_color,
         )
 
 

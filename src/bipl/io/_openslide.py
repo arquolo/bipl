@@ -137,7 +137,7 @@ def _mbgra_to_rgb(bgra: np.ndarray, rgb_base: np.ndarray) -> np.ndarray:
 #     return rgb
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _Image(Image):
     name: bytes
     osd: 'Openslide'
@@ -151,7 +151,8 @@ class _Image(Image):
         OSD.openslide_read_associated_image(self.osd.ptr, self.name,
                                             c_void_p(bgra.ctypes.data))
         rgb = _mbgra_to_rgb(bgra, self.osd.bg_color)
-        return np.ascontiguousarray(rgb)
+        rgb = np.ascontiguousarray(rgb)
+        return self._postprocess(rgb)
 
     @property
     def icc(self) -> Icc | None:
@@ -170,7 +171,7 @@ class _Image(Image):
         return Icc(buf.tobytes())
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _Level(ImageLevel):
     downsample: int
     index: int
@@ -195,7 +196,8 @@ class _Level(ImageLevel):
         )
         rgb = _mbgra_to_rgb(bgra, self.osd.bg_color)
 
-        return self._expand(rgb, valid_box, box, self.osd.bg_color)
+        rgb = self._expand(rgb, valid_box, box, self.osd.bg_color)
+        return self._postprocess(rgb)
 
     @property
     def icc(self) -> Icc | None:
@@ -203,7 +205,7 @@ class _Level(ImageLevel):
 
 
 class Openslide(Driver):
-    def __init__(self, path: str):
+    def __init__(self, path: str) -> None:
         self.ptr = OSD.openslide_open(path.encode())
         if not self.ptr:
             raise ValueError('libopenslide failed to open file')
@@ -263,8 +265,10 @@ class Openslide(Driver):
         if downsample <= 0:
             raise ValueError(f'Invalid level downsample: {downsample}')
 
-        downsample = round2(downsample)
-        return _Level((h.value, w.value, 3), downsample, index, self)
+        return _Level((h.value, w.value, 3),
+                      downsample=round2(downsample),
+                      index=index,
+                      osd=self)
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)
@@ -275,7 +279,7 @@ class Openslide(Driver):
         w, h = c_int64(), c_int64()
         OSD.openslide_get_associated_image_dimensions(self.ptr, name, byref(w),
                                                       byref(h))
-        return _Image((h.value, w.value, 3), name, self)
+        return _Image((h.value, w.value, 3), name=name, osd=self)
 
     @property
     def bbox(self) -> tuple[slice, ...]:
