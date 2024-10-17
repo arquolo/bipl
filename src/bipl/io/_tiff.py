@@ -17,7 +17,6 @@ from ctypes import POINTER, addressof, c_ubyte, c_void_p
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime
 from enum import Enum
-from heapq import heappop, heappush
 from itertools import product
 from threading import Lock
 from typing import Any
@@ -26,7 +25,7 @@ import cv2
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import shared_call, si_bin, sizeof
+from glow import shared_call, si_bin
 from numpy.lib.stride_tricks import as_strided
 
 from bipl._env import env
@@ -447,15 +446,15 @@ class _Level(ImageLevel, _BaseImage):
         lo, hi = self.spans[idx].tolist()
         if lo == hi:  # If nothing to read, don't read
             return None
-        return self._get_tile_raw(lo, hi, *idx)
+        return self._get_tile_raw(lo, hi)
 
-    def _get_tile_raw(self, lo: int, hi: int, *idx: int) -> _U8:
+    def _get_tile_raw(self, lo: int, hi: int) -> _U8:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        key = (*self.shape, id(self), *idx)
+        key = (*self.shape, id(self), lo, hi)
 
         # Cache hit
         if (im := self.cache[key]) is not None:
@@ -569,7 +568,7 @@ class _AperioSubLevel(_AperioLevel):
             return self.prev.part((iy * th, iy * th + th),
                                   (ix * tw, ix * tw + tw))
 
-        return self._get_tile_raw(lo, hi, *idx)
+        return self._get_tile_raw(lo, hi)
 
 
 class Tiff(Driver):
@@ -768,12 +767,11 @@ def _detect_tile_order(start: npt.NDArray[np.integer]) -> str | None:
 
 
 class _CacheZYXC:
-    __slots__ = ('lock', 'used', 'keys', 'buf')
+    __slots__ = ('lock', 'used', 'buf')
 
     def __init__(self) -> None:
         self.lock = Lock()
         self.used: int = 0
-        self.keys: list[tuple] = []
         self.buf: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
 
     def __repr__(self) -> str:
@@ -789,19 +787,18 @@ class _CacheZYXC:
     def __setitem__(self, key: tuple, obj: _U8) -> None:
         if not (capacity := env.BIPL_TILE_CACHE):
             return
-        if (size := sizeof(obj)) > capacity:
+        size = obj.nbytes
+        if size > capacity:
             warnings.warn(
                 f'Rejecting overlarge cache entry of size {size} bytes',
                 stacklevel=3)
             return
         max_size = capacity - size
-
         with self.lock:
-            while self.keys and self.used > max_size:
-                self.used -= self.buf.pop(heappop(self.keys))[0]
-
+            while self.buf and self.used > max_size:
+                key = next(iter(self.buf))
+                self.used -= self.buf.pop(key)[0]
             if self.used <= max_size:
-                heappush(self.keys, key)
                 self.buf[key] = (size, obj)
                 self.used += size
 
