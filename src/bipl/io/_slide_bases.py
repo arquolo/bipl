@@ -3,11 +3,13 @@ __all__ = ['Driver', 'Image', 'ImageLevel']
 import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
+from itertools import starmap
 from math import ceil
 from typing import TYPE_CHECKING, Self, final
 
 import cv2
 import numpy as np
+from glow import aceil, afloor
 
 from bipl import env
 from bipl._types import HasParts, Patch, Shape, Span, Tile
@@ -158,6 +160,47 @@ class ProxyLevel(ImageLevel):
         im = rescale_crop(
             self.base, *loc, scale=1 / self.scale, interpolation=1)
         return self._postprocess(im)
+
+    def parts(self,
+              locs: Sequence[tuple[Span, ...]],
+              max_workers: int = 0) -> Iterator[Patch]:
+        scale = 1 / self.scale
+        o_locs = np.asarray(locs, 'i4')  # (n yx lo/hi)
+        n = o_locs.shape[0]
+
+        i_locs_f = o_locs * scale
+        i_locs = np.stack(
+            [afloor(i_locs_f[:, :, 0], 'i4'),
+             aceil(i_locs_f[:, :, 1], 'i4')], -1)  # (n yx lo/hi)
+        sizes = o_locs @ [-1, 1]  # (n yx)
+
+        # Transformation matrix, (n xy xyc)
+        mats = np.zeros((n, 2, 3), 'f4')
+        mats[:, 0, 0] = scale
+        mats[:, 1, 1] = scale
+        mats[:, :, 2] = (
+            i_locs_f[:, ::-1, 0] - i_locs[:, ::-1, 0] + (scale - 1) / 2)
+
+        # Map input -> output
+        i_locs_lst = [tuple(map(Span, loc)) for loc in i_locs.tolist()]
+        o_locs_lst = [tuple(map(Span, loc)) for loc in o_locs.tolist()]
+        i2o = dict(zip(i_locs_lst, zip(o_locs_lst, sizes.tolist(), mats)))
+
+        kwargs = {
+            'flags': cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+            'borderMode': cv2.BORDER_CONSTANT,
+        }
+
+        # TODO: make this parallel
+        def resample(iyx: tuple[Span, ...], i: np.ndarray) -> Patch:
+            oyx, (h, w), mat = i2o[iyx]
+            if not i.size:
+                o = np.empty((h, w, *i.shape[2:]), i.dtype)
+            else:
+                o = cv2.warpAffine(i, mat, (w, h), **kwargs)  # type: ignore
+            return Patch(oyx, self._postprocess(o))
+
+        return starmap(resample, self.base.parts(i_locs_lst, max_workers))
 
 
 @dataclass(frozen=True, kw_only=True)

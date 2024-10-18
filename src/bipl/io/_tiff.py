@@ -11,7 +11,7 @@ import mmap
 import sys
 import warnings
 import weakref
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from ctypes import POINTER, addressof, c_ubyte, c_void_p
 from dataclasses import dataclass, field, fields, replace
@@ -25,11 +25,10 @@ import cv2
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import shared_call, si_bin
-from numpy.lib.stride_tricks import as_strided
+from glow import shared_call, si_bin, starmap_n
 
 from bipl._env import env
-from bipl._types import Shape, Span
+from bipl._types import NDIndex, Patch, Shape, Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel
@@ -475,64 +474,129 @@ class _Level(ImageLevel, _BaseImage):
         return im  # type: ignore
 
     def part(self, *loc: Span) -> _U8:
-        th, tw, spp = self.tile_shape
+        (_, p), = self.parts([loc])
+        return p
 
-        # (y/x lo/hi)
-        box = np.array(loc)
-        out_shape = np.r_[box[:, 1] - box[:, 0], spp]
+    def parts(self,
+              locs: Sequence[tuple[Span, ...]],
+              max_workers: int = 0) -> Iterator[Patch]:
+        if not locs:
+            return
+        n = len(locs)
 
-        if not out_shape.all():
-            return np.empty(out_shape, self.dtype)
+        # (n yx lo/hi)
+        boxes = np.asarray(locs, 'i4')
 
-        bmin, bmax = box.T.clip(0, self.shape[:2])  # (y/x)
-        if (bmin == bmax).any():  # Crop is outside of image
-            return np.broadcast_to(self.fill, out_shape)
+        # (n yxc)
+        out_shapes = np.empty((n, 3), int)
+        out_shapes[:, :2] = boxes @ [-1, 1]
+        _, _, out_shapes[:, 2] = self.tile_shape
 
-        iloc: tuple[range, ...]
-        t_crops: tuple[list[slice], ...]
-        o_crops: tuple[list[slice], ...]
-        iloc, t_crops, o_crops, ((y0, y1), (x0, x1)) = zip(
-            *map(self._make_index, box[:, 0], bmin, bmax, (th, tw)))
+        # a[box idx]
+        roi = np.empty((n, 2, 2), int)  # ROI to fill, [[y0 y1] [x0 x1]]
+        counts = np.zeros(n, int)  # num used tiles
 
-        parts = [self.tile(y, x, 0) for y, x in product(*iloc)]
+        # box idx -> patch, buffer to store results before they're complete
+        buf: dict[int, Patch] = {}
 
-        out = np.empty(out_shape, self.dtype)
-        out[:y0] = self.fill
-        out[y0:y1, :x0] = self.fill
-        out[y0:y1, x1:] = self.fill
-        out[y1:] = self.fill
-        for part, oyx, tyx in zip(parts, product(*o_crops), product(*t_crops)):
-            out[oyx] = self.fill if part is None else part[tyx]
-        return out
+        # tile idx -> [(loc id, o loc, t loc), ...]
+        tile_to_boxes: dict[
+            NDIndex,
+            list[tuple[int, tuple[slice, ...], tuple[slice, ...]]],
+        ] = {}
+
+        for i, (loc, oshape, box) in enumerate(zip(locs, out_shapes, boxes)):
+            coords, roi[i] = self._make_index(box)
+            for iyx, oyx, tyx in coords:
+                tile_to_boxes.setdefault((*iyx, 0), []).append((i, oyx, tyx))
+                counts[i] += 1
+
+            a = (
+                np.broadcast_to(self.fill, oshape)
+                if oshape.all() else np.empty(oshape, self.dtype))
+            buf[i] = Patch(loc, a)
+
+        # Pop initial nulls
+        pos = 0
+        for pos, cnt in enumerate(counts):
+            if cnt > 0:
+                break
+            yield buf.pop(pos)
+
+        # Read linear according to file layout
+        ids = tile_to_boxes.keys()
+        ids = sorted(ids, key=self.spans[:, :, :, 0].__getitem__)
+        tiles = zip(ids, starmap_n(self.tile, ids, max_workers=max_workers))
+        fill = self.fill
+
+        # Unwrap & build patches
+        for iyx, tile in tiles:
+            # Update all parts using current tile
+            for i, oyx, tyx in tile_to_boxes.get(iyx, []):
+                if (out := buf[i]).data.base is fill:
+                    a = np.empty_like(out.data)
+                    (y0, y1), (x0, x1) = roi[i].tolist()
+                    a[:y0] = fill
+                    a[y0:y1, :x0] = fill
+                    a[y0:y1, x1:] = fill
+                    a[y1:] = fill
+                    buf[i] = out = Patch(out.loc, a)
+
+                out.data[oyx] = fill if tile is None else tile[tyx]
+                counts[i] -= 1
+
+            # Yield completed items, order preserved
+            while pos < n and counts[pos] == 0:
+                yield buf.pop(pos)
+                pos += 1
 
     def _make_index(
-        self,
-        min_: int,
-        vmin: int,
-        vmax: int,
-        tile_size: int,
-    ) -> tuple[range, list[slice], list[slice], list]:
-        lo = vmin // tile_size
-        hi = -(-vmax // tile_size)
-        n = hi - lo
+        self, box: np.ndarray
+    ) -> tuple[list[tuple[NDIndex, tuple[slice, ...], tuple[slice, ...]]],
+               np.ndarray]:
+        # box: (yx lo/hi)
+        # (yx)
+        min_ = box[:, 0]
+        box_size = box @ [-1, 1]
+        # (yx lo/hi)
+        vbox = box.T.clip(0, self.shape[:2]).T  # box within slide
+        o_loc = vbox - min_[:, None]  # region of `out` to fill
 
-        # (n + 1)
-        ts = np.arange(lo, hi + 1) * tile_size
-        vsep = ts.clip(vmin, vmax)
+        # (yx)
+        vbox_size = vbox @ [-1, 1]
+        # (yx lo/hi)
+        o_loc = o_loc.clip(0, box_size[:, None])
 
-        # (n lo/hi), source & target slices
-        u = vsep.itemsize
-        o_crops = as_strided(vsep - min_, (n, 2), (u, u))
-        t_crops = as_strided(vsep, (n, 2), (u, u)) - ts[:-1, None]
+        if not vbox_size.all():  # Empty valid box
+            return [], o_loc
 
-        # (lo/hi), region of `out` to fill
-        o_span = o_crops[[0, -1], [0, 1]].tolist()
+        # (yx)
+        tile_size = self.tile_shape[:2]
+        i_lo = vbox[:, 0] // tile_size  # i_lo * tile <= vmin
+        i_hi = -(-vbox[:, 1] // tile_size)  # i_hi * tile >= vmax
+
+        # (ny) (nx)
+        *ids, = map(range, i_lo, i_hi)
+        oxs: list[list[slice]] = []
+        txs: list[list[slice]] = []
+        for i_lo_, i_hi_1, tsize, vspan, min__ in zip(i_lo, i_hi + 1,
+                                                      tile_size, vbox, min_):
+            # (n + 1)
+            ts = np.arange(i_lo_, i_hi_1) * tsize
+            vts = ts.clip(*vspan)
+            vts_src = vts - min__
+
+            # (n), result slices
+            *o_crops, = map(slice, vts_src[:-1], vts_src[1:])
+            oxs.append(o_crops)
+
+            # (n), tile slices
+            *t_crops, = map(slice, vts[:-1] - ts[:-1], vts[1:] - ts[:-1])
+            txs.append(t_crops)
 
         return (
-            range(lo, hi),
-            [slice(*t) for t in t_crops.tolist()],
-            [slice(*o) for o in o_crops.tolist()],
-            o_span,
+            [*zip(product(*ids), product(*oxs), product(*txs), strict=True)],
+            o_loc,
         )
 
 
@@ -747,20 +811,6 @@ class Tiff(Driver):
             cache=self.cache,
             fill_orig=self._bg_color,
         )
-
-
-def _detect_tile_order(start: npt.NDArray[np.integer]) -> str | None:
-    start = start.squeeze().copy()
-    if start.ndim < 2:
-        return 'C'
-
-    for order in ('F', 'C'):
-        a = start.ravel(order)
-        a = a[a > 0]
-        if (a[:-1] < a[1:]).all():
-            return order
-
-    return None
 
 
 # ------------------------------- tile caching -------------------------------
