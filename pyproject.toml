@@ -12,7 +12,7 @@ artifacts = ["*.dll"]  # only wheel keeps DLLs
 
 [project]
 name = "bipl"
-version = "0.5.15"
+version = "0.6.0"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
 requires-python = ">=3.12"
