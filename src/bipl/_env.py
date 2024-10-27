@@ -11,7 +11,7 @@ _bs_adapter = TypeAdapter(ByteSize)
 class Env(BaseSettings):
     BIPL_DRIVERS: set[str] = {'gdal', 'tiff', 'openslide'}
     # Max slides opened
-    BIPL_CACHE: ByteSize = _bs_adapter.validate_python('10 MiB')
+    BIPL_CACHE: int = 64
     # Max tiles cached per tiff slide
     BIPL_TILE_CACHE: ByteSize = _bs_adapter.validate_python('16 MiB')
 

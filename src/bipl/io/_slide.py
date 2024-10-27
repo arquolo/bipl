@@ -78,9 +78,12 @@ def _load_drivers() -> None:
 _load_drivers()
 
 
-@shared_call  # merge duplicate calls
-@weak_memoize  # reuse result if it's already exist, but used by someone else
-@memoize(capacity=env.BIPL_CACHE, policy='lru')  # keep LRU for unused results
+# Merge duplicate calls
+@shared_call
+# Reuse result if it's already exist, but used by someone else
+@weak_memoize
+# Keep LRU for unused results
+@memoize(capacity=env.BIPL_CACHE, policy='lru', bytesize=False)
 def _cached_open(path: str) -> 'Slide':
     if tps := Driver.find(path):
         errors: list[Exception] = []
