@@ -15,7 +15,7 @@ name = "bipl"
 version = "0.5.15"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {file = "LICENSE"}
 keywords = [
     "medical", "images", "pathology", "whole-slide", "wsi", "pyramid", "slide",
@@ -34,12 +34,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
-    "glow~=0.13.5",
+    "glow~=0.14.0",
     "imagecodecs",
     "lxml",
     "numpy >=1.21, <3",
@@ -88,7 +87,7 @@ repository = "https://github.com"
 
 [tool.ruff]
 line-length = 79
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [

@@ -2,7 +2,6 @@ __all__ = ['Slide']
 
 import importlib
 import os
-import sys
 import warnings
 from bisect import bisect_right
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -23,8 +22,6 @@ from ._slide_bases import Driver, Image, ImageLevel
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
 # TODO: to make Slide export not require DLL presence
-
-_PY312 = sys.version_info >= (3, 12)
 
 
 def _load_drivers() -> None:
@@ -92,9 +89,7 @@ def _cached_open(path: str) -> 'Slide':
                 return Slide.from_file(path, tp)
             except (ValueError, TypeError) as exc:
                 errors.append(exc)
-        if _PY312:
-            raise ExceptionGroup('Cannot open file', errors) from None
-        raise errors[-1] from None
+        raise ExceptionGroup('Cannot open file', errors) from None
 
     raise ValueError(f'Unknown file format {path}')
 
