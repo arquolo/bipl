@@ -10,15 +10,15 @@ __all__ = [
 ]
 
 from collections.abc import Iterator, Sequence
-from typing import NamedTuple, Protocol, TypeAlias
+from typing import NamedTuple, Protocol
 
 import numpy as np
 from glow import map_n
 
-NDIndex: TypeAlias = tuple[int, ...]  # Index vector
-Shape: TypeAlias = tuple[int, ...]  # N-dim shape
-Span: TypeAlias = tuple[int, int]  # start/stop for `slice()`
-Vec: TypeAlias = tuple[int, ...]  # N-dim radius-vector to some point
+type NDIndex = tuple[int, ...]  # Index vector
+type Shape = tuple[int, ...]  # N-dim shape
+type Span = tuple[int, int]  # start/stop for `slice()`
+type Vec = tuple[int, ...]  # N-dim radius-vector to some point
 
 
 class NumpyLike(Protocol):

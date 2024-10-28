@@ -34,7 +34,7 @@ class Decimator:
         stride = self.stride
         vec = *(c // stride for c in tile.vec),
         data = tile.data[::stride, ::stride]
-        return Tile(idx=tile.idx, vec=vec, data=data)  # type: ignore[arg-type]
+        return Tile(idx=tile.idx, vec=vec, data=data)
 
 
 @dataclass(frozen=True, slots=True)

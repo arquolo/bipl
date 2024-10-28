@@ -232,10 +232,7 @@ class Slide(HasParts):
         lv = self.levels[idx]
 
         # Make 2^k level as close as possible to target
-        steps = max(int(downsample / ds).bit_length() - 1, 0)
-        steps, lv = lv.decimate(steps)
-
-        return ds << steps, lv
+        return lv.decimate(downsample, ds)
 
     def resample(self, mpp: float, *, tol: float = 0.01) -> ImageLevel:
         """Resample slide to specific resolution"""
@@ -244,10 +241,10 @@ class Slide(HasParts):
 
     def pool(self, downsample: float, /, *, tol: float = 0.01) -> ImageLevel:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
-        d, lvl = self.best_level_for(downsample, tol=tol)
-        if d == downsample:
+        ds, lvl = self.best_level_for(downsample, tol=tol)
+        if ds == downsample:
             return lvl
-        return lvl.rescale(d / downsample)
+        return lvl.rescale(ds / downsample)
 
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve image patch from maximum resolution"""

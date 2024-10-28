@@ -1,7 +1,6 @@
 from collections.abc import Mapping
 from io import BytesIO
 from itertools import zip_longest
-from math import log2
 from typing import Any
 
 import cv2
@@ -185,13 +184,15 @@ class Icc:
 
 
 def round2(x: float) -> int:
-    """Round to power of 2"""
-    assert x > 0
-    power = round(log2(x))
-    return 1 << power
+    """Round to `2^k`, `k` is non-negative"""
+    return floor2(x * _sqrt2)
 
 
 def floor2(x: float) -> int:
-    """Floor to power of 2"""
-    power = max(0, int(log2(x)))
+    """Floor to `2^k`, `k` is non-negative"""
+    x = max(x, 1)
+    power = int(x).bit_length() - 1
     return 1 << power
+
+
+_sqrt2 = 2 ** 0.5

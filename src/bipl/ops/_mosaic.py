@@ -404,7 +404,7 @@ class _ArrayTiles(Tiles):
         """Precompute tile coordinates: 2D index & Y/X-slices"""
         iys, ixs = self.cells.nonzero()
         boxes = locs[iys, ixs].tolist()
-        return [(i, Span(ys), Span(xs))
+        return [(i, tuple(ys), tuple(xs))
                 for i, (ys, xs) in zip(zip(iys.tolist(), ixs.tolist()), boxes)]
 
     def _drop_overlaps(self,
@@ -435,7 +435,7 @@ class _ArrayTiles(Tiles):
             ids = [i[0] for i in ilocs]
             boxes = [i[1:] for i in ilocs]
             patches = self.data.parts(boxes, max_workers=self.max_workers)
-            parts = (Tile(idx=i, vec=Vec(s[0] for s in p.loc), data=p.data)
+            parts = (Tile(idx=i, vec=tuple(s[0] for s in p.loc), data=p.data)
                      for i, p in zip(ids, patches))
         else:
             parts = starmap_n(

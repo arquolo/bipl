@@ -121,10 +121,10 @@ class ImageLevel(Image, HasParts):
             base=replace(base, post=[]),
         )
 
-    def decimate(self, steps: int) -> 'tuple[int, ImageLevel]':
-        return (0, self)
+    def decimate(self, dst: float, src: int = 1) -> tuple[int, 'ImageLevel']:
+        return (src, self)
 
-    def join(self, lv: 'ImageLevel') -> 'tuple[int, ImageLevel]':
+    def join(self, lv: 'ImageLevel') -> tuple[int, 'ImageLevel']:
         ds = round2(lv.shape[0] / self.shape[0])
         return ds, self
 
@@ -182,8 +182,10 @@ class ProxyLevel(ImageLevel):
             i_locs_f[:, ::-1, 0] - i_locs[:, ::-1, 0] + (scale - 1) / 2)
 
         # Map input -> output
-        i_locs_lst = [tuple(map(Span, loc)) for loc in i_locs.tolist()]
-        o_locs_lst = [tuple(map(Span, loc)) for loc in o_locs.tolist()]
+        i_locs_lst: list[tuple[Span, ...]]
+        o_locs_lst: list[tuple[Span, ...]]
+        i_locs_lst = [tuple(map(tuple, loc)) for loc in i_locs.tolist()]
+        o_locs_lst = [tuple(map(tuple, loc)) for loc in o_locs.tolist()]
         i2o = dict(zip(i_locs_lst, zip(o_locs_lst, sizes.tolist(), mats)))
 
         kwargs = {

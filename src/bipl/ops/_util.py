@@ -116,7 +116,7 @@ def crop_to(vec: Vec, a: NumpyLike,
     Returns new offset & data.
     """
     assert len(a.shape) >= len(shape), 'Desired shape has more dims than `a`'
-    loc = *(Span(np.clip([0, ts], -t0, s - t0))
+    loc = *(tuple(np.clip([0, ts], -t0, s - t0))
             for t0, ts, s in zip(vec, a.shape, shape)),
     a = padslice(a, *loc)
 
@@ -225,7 +225,7 @@ def rescale_crop(a: NumpyLike,
     eps = (0, 0, 1, 0, 3)[interpolation]
 
     # Tight slice to have all necessary pixels
-    loc = *(Span(np.clip([lo - eps, hi + eps], 0, size))
+    loc = *(tuple(np.clip([lo - eps, hi + eps], 0, size))
             for (lo, hi), size in zip(loc, a.shape)),
     r = at(a, *loc)
     if not r.size:  # 0-size tight slice

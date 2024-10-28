@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, fields, replace
 from datetime import datetime
 from enum import Enum
 from itertools import product
+from math import gcd
 from threading import Lock
 from typing import Any
 
@@ -255,7 +256,7 @@ class _Tags:
                 return imagecodecs.jpeg2k_decode
 
             case _:
-                return imagecodecs.imread  # type: ignore
+                return imagecodecs.imread
 
     def _bg_color(self, meta: dict) -> _U8:
         if c := meta.get('ScanWhitePoint'):
@@ -414,24 +415,27 @@ class _Level(ImageLevel, _BaseImage):
     def __post_init__(self) -> None:
         self.fill[:] = self._postprocess(self.fill_orig[None, None])[0, 0, :]
 
-    def decimate(self, num_steps: int) -> 'tuple[int, _Level]':
+    def decimate(self, dst: float, src: int = 1) -> tuple[int, '_Level']:
+        assert dst >= 1
+        assert src >= 1
         th, tw, tc = self.tile_shape
+        t = gcd(th, tw)
 
-        downsamples = 2 ** np.arange(num_steps + 1)
-        ids, = ((th % downsamples == 0) & (tw % downsamples == 0)).nonzero()
-        num_steps = ids.max()
-        if num_steps == 0:  # Failed to decimate
-            return (0, self)
+        max_ds = (-t) & t  # See: https://stackoverflow.com/q/1551775
+        steps = min(int(dst / src), max_ds).bit_length() - 1
 
-        ds = downsamples[num_steps]
+        if steps <= 0:  # No need or cannot decimate
+            return (src, self)
+
+        ds = 2 ** steps
         h, w, c = self.shape
         lv = replace(
             self,
             shape=((h + ds - 1) // ds, (w + ds - 1) // ds, c),
             tile_shape=(th // ds, tw // ds, tc),
-            decimations=self.decimations + num_steps,
+            decimations=self.decimations + steps,
         )
-        return (num_steps, lv)
+        return (src * ds, lv)
 
     def __eq__(self, rhs) -> bool:
         return (type(self) is type(rhs) and self.memo is rhs.memo
@@ -470,8 +474,8 @@ class _Level(ImageLevel, _BaseImage):
         elif self.decimations >= 2:
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
-        self.cache[key] = im = self._postprocess(im)  # type: ignore
-        return im  # type: ignore
+        self.cache[key] = im = self._postprocess(im)
+        return im
 
     def part(self, *loc: Span) -> _U8:
         (_, p), = self.parts([loc])
@@ -486,11 +490,12 @@ class _Level(ImageLevel, _BaseImage):
 
         # (n yx lo/hi)
         boxes = np.asarray(locs, 'i4')
+        th, tw, spp = self.tile_shape
 
         # (n yxc)
         out_shapes = np.empty((n, 3), int)
         out_shapes[:, :2] = boxes @ [-1, 1]
-        _, _, out_shapes[:, 2] = self.tile_shape
+        out_shapes[:, 2] = spp
 
         # a[box idx]
         roi = np.empty((n, 2, 2), int)  # ROI to fill, [[y0 y1] [x0 x1]]
@@ -602,15 +607,17 @@ class _Level(ImageLevel, _BaseImage):
 
 @dataclass(eq=False, frozen=True)
 class _AperioLevel(_Level):
-    def join(self, lv: ImageLevel) -> 'tuple[int, _Level]':
+    def join(self, lv: ImageLevel) -> tuple[int, '_Level']:
         ds, _ = super().join(lv)
-
-        steps = max(ds.bit_length() - 1, 0)
-        steps, lv = lv.decimate(steps)
-        lv_ds = 2 ** steps
+        lv_ds, lv = lv.decimate(ds, 1)
 
         if lv_ds != ds:
-            lv = ProxyLevel(self.shape, scale=lv_ds / ds, base=lv)
+            lv = ProxyLevel(
+                self.shape,
+                lv.post,
+                scale=lv_ds / ds,
+                base=replace(lv, post=[]),
+            )
 
         if not isinstance(self, _AperioSubLevel):
             r = {f.name: getattr(self, f.name) for f in fields(self) if f.init}
