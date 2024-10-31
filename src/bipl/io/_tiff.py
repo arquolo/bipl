@@ -14,13 +14,13 @@ import weakref
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from ctypes import POINTER, addressof, c_ubyte, c_void_p
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from itertools import product
+from itertools import chain, product
 from math import gcd
 from threading import Lock
-from typing import Any
+from typing import Any, Self
 
 import cv2
 import imagecodecs
@@ -407,13 +407,9 @@ class _Level(ImageLevel, _BaseImage):
     tile_shape: Shape
     decode: Callable[[bytes], _U8]
     cache: '_CacheZYXC'
-    fill_orig: _U8 = field(repr=False)
-    fill: _U8 = field(
-        init=False, default_factory=lambda: np.full(3, 255, 'u1'))
+    fill: _U8
     decimations: int = 0  # [0, 1, 2, ..., n]
-
-    def __post_init__(self) -> None:
-        self.fill[:] = self._postprocess(self.fill_orig[None, None])[0, 0, :]
+    prev: ImageLevel | None = None
 
     def decimate(self, dst: float, src: int = 1) -> tuple[int, '_Level']:
         assert dst >= 1
@@ -429,11 +425,21 @@ class _Level(ImageLevel, _BaseImage):
 
         ds = 2 ** steps
         h, w, c = self.shape
+
+        prev = self.prev
+        shape = ((h + ds - 1) // ds, (w + ds - 1) // ds, c)
+
+        if prev is not None:
+            prev_ds, prev = prev.decimate(ds, 1)
+            if prev_ds != ds:
+                prev = prev.rescale(prev_ds / ds)
+
         lv = replace(
             self,
-            shape=((h + ds - 1) // ds, (w + ds - 1) // ds, c),
+            shape=shape,
             tile_shape=(th // ds, tw // ds, tc),
             decimations=self.decimations + steps,
+            prev=prev,
         )
         return (src * ds, lv)
 
@@ -449,19 +455,17 @@ class _Level(ImageLevel, _BaseImage):
         lo, hi = self.spans[idx].tolist()
         if lo == hi:  # If nothing to read, don't read
             return None
-        return self._get_tile_raw(lo, hi)
 
-    def _get_tile_raw(self, lo: int, hi: int) -> _U8:
         # NOTE:
         # Like OpenSlide does we use private cache for each slide
         #   with (level, y, x) key to cache decoded pixels.
         # But we also cache opened slides to not waste time on re-opening
         #   (that can lead to multiple caches existing at the same moment).
-        key = (*self.shape, id(self), lo, hi)
+        key = (self.decimations, lo, hi)
 
         # Cache hit
         if (im := self.cache[key]) is not None:
-            return im
+            return self._postprocess(im)
 
         # Cache miss
         # Read tile from disk
@@ -474,8 +478,8 @@ class _Level(ImageLevel, _BaseImage):
         elif self.decimations >= 2:
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
-        self.cache[key] = im = self._postprocess(im)
-        return im
+        self.cache[key] = im  # type: ignore
+        return self._postprocess(im)
 
     def part(self, *loc: Span) -> _U8:
         (_, p), = self.parts([loc])
@@ -497,50 +501,65 @@ class _Level(ImageLevel, _BaseImage):
         out_shapes[:, :2] = boxes @ [-1, 1]
         out_shapes[:, 2] = spp
 
-        # a[box idx]
-        roi = np.empty((n, 2, 2), int)  # ROI to fill, [[y0 y1] [x0 x1]]
-        counts = np.zeros(n, int)  # num used tiles
-
-        # box idx -> patch, buffer to store results before they're complete
-        buf: dict[int, Patch] = {}
-
         # tile idx -> [(loc id, o loc, t loc), ...]
         tile_to_boxes: dict[
             NDIndex,
             list[tuple[int, tuple[slice, ...], tuple[slice, ...]]],
         ] = {}
 
-        for i, (loc, oshape, box) in enumerate(zip(locs, out_shapes, boxes)):
-            coords, roi[i] = self._make_index(box)
-            for iyx, oyx, tyx in coords:
+        counts = np.zeros(n, int)  # num used tiles
+        box_ids, mins_, vboxes, i_lows, i_highs, counts_, o_locs \
+            = self._init_index(boxes)
+        counts[box_ids] = counts_
+        for i, *args in zip(box_ids.tolist(), mins_, vboxes, i_lows, i_highs):
+            for iyx, oyx, tyx in self._make_subindex(*args):
                 tile_to_boxes.setdefault((*iyx, 0), []).append((i, oyx, tyx))
-                counts[i] += 1
 
-            a = (
-                np.broadcast_to(self.fill, oshape)
-                if oshape.all() else np.empty(oshape, self.dtype))
-            buf[i] = Patch(loc, a)
-
+        # box idx -> patch, buffer to store results before they're complete
+        fill = self._postprocess(self.fill[None, None])[0, 0, :]
+        buf: dict[int, Patch] = {
+            i: Patch(loc, np.broadcast_to(fill, oshape))
+            for i, (loc, oshape) in enumerate(zip(locs, out_shapes))
+        }
         # Pop initial nulls
-        pos = 0
-        for pos, cnt in enumerate(counts):
-            if cnt > 0:
-                break
-            yield buf.pop(pos)
+        pos = box_ids[0] if box_ids.size else n
+        for i in range(pos):
+            yield buf.pop(i)
+        if not buf:
+            return
 
         # Read linear according to file layout
-        ids = tile_to_boxes.keys()
+        ids: list[NDIndex] = []
+        nulls: list[NDIndex] = []
+        for iyx in tile_to_boxes:
+            nbytes = self.spans[iyx] @ [-1, 1]
+            (ids, nulls)[nbytes == 0].append(iyx)
+
+        if self.prev is not None:
+            prev_parts = self.prev.parts(
+                [((iy * th, iy * th + th), (ix * tw, ix * tw + tw))
+                 for iy, ix, _ in nulls],
+                max_workers=max_workers,
+            )
+            prev_tiles = ((i, a) for i, (_, a) in zip(nulls, prev_parts))
+        else:
+            prev_tiles = ((i, None) for i in nulls)
+
         ids = sorted(ids, key=self.spans[:, :, :, 0].__getitem__)
         tiles = zip(ids, starmap_n(self.tile, ids, max_workers=max_workers))
-        fill = self.fill
 
         # Unwrap & build patches
-        for iyx, tile in tiles:
+        rois: dict[int, tuple[Span, ...]] \
+            = dict(zip(box_ids.tolist(), o_locs.tolist()))
+        for iyx, tile in chain(prev_tiles, tiles):
+
             # Update all parts using current tile
             for i, oyx, tyx in tile_to_boxes.get(iyx, []):
-                if (out := buf[i]).data.base is fill:
+                out = buf[i]
+
+                if roi := rois.pop(i, None):
                     a = np.empty_like(out.data)
-                    (y0, y1), (x0, x1) = roi[i].tolist()
+                    (y0, y1), (x0, x1) = roi
                     a[:y0] = fill
                     a[y0:y1, :x0] = fill
                     a[y0:y1, x1:] = fill
@@ -555,91 +574,80 @@ class _Level(ImageLevel, _BaseImage):
                 yield buf.pop(pos)
                 pos += 1
 
-    def _make_index(
-        self, box: np.ndarray
-    ) -> tuple[list[tuple[NDIndex, tuple[slice, ...], tuple[slice, ...]]],
-               np.ndarray]:
-        # box: (yx lo/hi)
-        # (yx)
-        min_ = box[:, 0]
-        box_size = box @ [-1, 1]
-        # (yx lo/hi)
-        vbox = box.T.clip(0, self.shape[:2]).T  # box within slide
-        o_loc = vbox - min_[:, None]  # region of `out` to fill
+    def _init_index(
+            self, boxes: np.ndarray  # (n yx lo/hi)
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+               np.ndarray, np.ndarray]:
+        shape = np.reshape(self.shape[:2], (2, 1))
+        tile_size = np.reshape(self.tile_shape[:2], (1, 2))
 
-        # (yx)
-        vbox_size = vbox @ [-1, 1]
-        # (yx lo/hi)
-        o_loc = o_loc.clip(0, box_size[:, None])
+        # (n yx lo/hi), box within slide
+        vboxes = boxes.clip(0, shape)
 
-        if not vbox_size.all():  # Empty valid box
-            return [], o_loc
+        # (n yx)
+        mins_ = boxes[:, :, 0]
+        box_sizes = boxes @ [-1, 1]
+        vbox_sizes = vboxes @ [-1, 1]
 
+        # (n), drop empty "valid" boxes
+        mask = vbox_sizes.all(-1)
+        box_ids, = mask.nonzero()
+        mins_, box_sizes, vboxes = mins_[mask], box_sizes[mask], vboxes[mask]
+
+        # (n yx)
+        i_lows = vboxes[:, :, 0] // tile_size  # i_lo * tile <= vmin
+        i_highs = -(-vboxes[:, :, 1] // tile_size)  # i_hi * tile >= vmax
+
+        # (n)
+        counts = (i_highs - i_lows).prod(-1)
+        assert counts.all()
+
+        # (n yx lo/hi)
+        o_locs = vboxes - mins_[:, :, None]  # region of `out` to fill
+        o_locs = o_locs.clip(0, box_sizes[:, :, None])
+
+        # (n) (n yx) (n yx lo/hi) (n yx) (n yx) (n) {i -> (yx lo/hi)}
+        return box_ids, mins_, vboxes, i_lows, i_highs, counts, o_locs
+
+    def _make_subindex(
+        self,
+        min_: np.ndarray,  # (yx)
+        vbox: np.ndarray,  # (yx lo/hi)
+        i_lo: np.ndarray,  # (yx)
+        i_hi: np.ndarray,  # (yx)
+    ) -> list[tuple[NDIndex, tuple[slice, ...], tuple[slice, ...]]]:
         # (yx)
         tile_size = self.tile_shape[:2]
-        i_lo = vbox[:, 0] // tile_size  # i_lo * tile <= vmin
-        i_hi = -(-vbox[:, 1] // tile_size)  # i_hi * tile >= vmax
 
         # (ny) (nx)
-        *ids, = map(range, i_lo, i_hi)
+        ids = map(range, i_lo, i_hi)
         oxs: list[list[slice]] = []
         txs: list[list[slice]] = []
-        for i_lo_, i_hi_1, tsize, vspan, min__ in zip(i_lo, i_hi + 1,
+        for i_lo_, i_hi_1, tsize, vspan, amin_ in zip(i_lo, i_hi + 1,
                                                       tile_size, vbox, min_):
             # (n + 1)
             ts = np.arange(i_lo_, i_hi_1) * tsize
             vts = ts.clip(*vspan)
-            vts_src = vts - min__
+            vts_src = vts - amin_
 
             # (n), result slices
-            *o_crops, = map(slice, vts_src[:-1], vts_src[1:])
-            oxs.append(o_crops)
+            o_crops = map(slice, vts_src[:-1], vts_src[1:])
+            oxs.append(list(o_crops))
 
             # (n), tile slices
-            *t_crops, = map(slice, vts[:-1] - ts[:-1], vts[1:] - ts[:-1])
-            txs.append(t_crops)
+            t_crops = map(slice, vts[:-1] - ts[:-1], vts[1:] - ts[:-1])
+            txs.append(list(t_crops))
 
-        return (
-            [*zip(product(*ids), product(*oxs), product(*txs), strict=True)],
-            o_loc,
-        )
+        return [*zip(product(*ids), product(*oxs), product(*txs), strict=True)]
 
+    def apply(self, fn: Callable[[np.ndarray], np.ndarray]) -> Self:
+        post = [*self.post, fn]
 
-@dataclass(eq=False, frozen=True)
-class _AperioLevel(_Level):
-    def join(self, lv: ImageLevel) -> tuple[int, '_Level']:
-        ds, _ = super().join(lv)
-        lv_ds, lv = lv.decimate(ds, 1)
+        prev = self.prev
+        if prev is not None:
+            prev = replace(prev, post=post)
 
-        if lv_ds != ds:
-            lv = ProxyLevel(
-                self.shape,
-                lv.post,
-                scale=lv_ds / ds,
-                base=replace(lv, post=[]),
-            )
-
-        if not isinstance(self, _AperioSubLevel):
-            r = {f.name: getattr(self, f.name) for f in fields(self) if f.init}
-            return ds, _AperioSubLevel(**r, prev=lv)
-
-        return ds, replace(self, prev=lv)
-
-
-@dataclass(eq=False, frozen=True, kw_only=True)
-class _AperioSubLevel(_AperioLevel):
-    prev: ImageLevel
-
-    @shared_call  # Thread safety
-    def tile(self, *idx: int) -> _U8 | None:
-        lo, hi = self.spans[idx].tolist()
-        if lo == hi:  # Read tile from backup level
-            iy, ix, _ = idx
-            th, tw = self.tile_shape[:2]
-            return self.prev.part((iy * th, iy * th + th),
-                                  (ix * tw, ix * tw + tw))
-
-        return self._get_tile_raw(lo, hi)
+        return replace(self, post=post, prev=prev)
 
 
 class Tiff(Driver):
@@ -803,11 +811,6 @@ class Tiff(Driver):
 
         spans = tags.tile_spans(shape, tile_shape)
 
-        # Aperio can choke on non-L0 levels. Read those from L0 to fix.
-        # `openslide` does this for us, delegate to it.
-        if self.vendor == 'aperio' and (spans[..., 0] == spans[..., 1]).any():
-            raise ValueError('Found 0s in tile size table')
-
         return _Level(
             shape,
             icc_impl=tags.ifd.get(_Tag.ICC_PROFILE),
@@ -816,8 +819,42 @@ class Tiff(Driver):
             tile_shape=tile_shape,
             decode=tags.get_decoder(),
             cache=self.cache,
-            fill_orig=self._bg_color,
+            fill=self._bg_color,
         )
+
+    def build_pyramid(self, levels: Sequence[ImageLevel]
+                      ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+        downsamples, levels = super().build_pyramid(levels)
+
+        if self.vendor != 'aperio':
+            return downsamples, levels
+
+        # Aperio can choke on non-L0 levels. Read those from L0 to fix.
+        # `openslide` does this for us, delegate to it.
+        for i, (ds, lv) in enumerate(zip(downsamples, levels)):
+            assert isinstance(lv, _Level)
+            empty = lv.spans[..., 0] == lv.spans[..., 1]
+
+            if empty.any():
+                # * Do not process bad SVSs at all
+                raise ValueError('Found 0s in tile size table')
+
+            if i == 0:
+                continue
+            prev = levels[0]
+            prev_ds, prev = prev.decimate(ds, 1)
+
+            if prev_ds != ds:
+                prev = ProxyLevel(
+                    lv.shape,
+                    prev.post,
+                    scale=prev_ds / ds,
+                    base=replace(prev, post=[]),
+                )
+
+            levels[i] = replace(lv, prev=prev)
+
+        return downsamples, levels
 
 
 # ------------------------------- tile caching -------------------------------
@@ -853,8 +890,8 @@ class _CacheZYXC:
         max_size = capacity - size
         with self.lock:
             while self.buf and self.used > max_size:
-                key = next(iter(self.buf))
-                self.used -= self.buf.pop(key)[0]
+                k = next(iter(self.buf))
+                self.used -= self.buf.pop(k)[0]
             if self.used <= max_size:
                 self.buf[key] = (size, obj)
                 self.used += size

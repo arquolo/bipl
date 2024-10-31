@@ -134,26 +134,19 @@ class Slide(HasParts):
             raise ValueError('Empty file')
 
         # Retrieve all sub-images
-        levels: dict[int, ImageLevel] = {}
+        levels: list[ImageLevel] = []
         extras: dict[str, Image] = {}
         for idx in range(num_images):
             match driver[idx]:
                 case ImageLevel() as im:
-                    if levels:
-                        ds, im = im.join(levels[1])
-                        levels[ds] = im
-                    else:
-                        levels[1] = im
+                    levels.append(im)
                 case Image(key=str(key)) as im:
                     extras[key] = im
                 case _:
                     continue
-
         extras |= driver.named_items()
-        if not levels:
-            raise TypeError('No tiled layers present')
 
-        level_downsamples = *sorted(levels.keys()),
+        downsamples, levels = driver.build_pyramid(levels)
 
         if mpp is None:  # If no override is passed, use native if present
             mpp = driver.get_mpp()
@@ -163,12 +156,12 @@ class Slide(HasParts):
 
         return Slide(
             path=path,
-            shape=levels[1].shape,
+            shape=levels[0].shape,
             mpp=mpp,
-            downsamples=level_downsamples,
+            downsamples=downsamples,
             driver=type(driver).__name__,
             bbox=driver.bbox,
-            levels=tuple(levels[zoom] for zoom in level_downsamples),
+            levels=levels,
             extras=extras,
         )
 
@@ -183,9 +176,15 @@ class Slide(HasParts):
             }
         return replace(self, **changes) if changes else self
 
-    def norm(self, mpp: float = 64) -> 'Slide':
+    def norm(
+        self,
+        mpp: float = 64,
+        weight: float = 1.0,
+        channels: Literal['L', 'Lab', 'ab'] = 'ab',
+        r: float = 0.5,
+    ) -> 'Slide':
         ref = self.resample(mpp=mpp).numpy()
-        normalize = Normalizer(ref)
+        normalize = Normalizer(ref, weight=weight, channels=channels, r=r)
 
         levels = *(il.apply(normalize) for il in self.levels),
         extras = {

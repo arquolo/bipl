@@ -85,7 +85,10 @@ class ImageLevel(Image, HasParts):
 
         if isinstance(self, ProxyLevel):
             scale = self.scale * scale
-            base = replace(self.base, post=self.post)
+            base = self.base
+            if prev := getattr(base, 'prev', None):
+                base = replace(base, prev=replace(prev, post=self.post))
+            base = replace(base, post=self.post)
         else:
             base = self
 
@@ -104,6 +107,8 @@ class ImageLevel(Image, HasParts):
                       (bw + downsample - 1) // downsample)
 
             scale *= downsample
+            if prev := getattr(base, 'prev', None):
+                base = replace(base, prev=replace(prev, post=[]))
             base = TiledProxyLevel(
                 (bh, bw, bc),
                 post=base.post,
@@ -114,6 +119,8 @@ class ImageLevel(Image, HasParts):
 
         if scale == 1 or base.shape == (h, w, c):
             return base
+        if prev := getattr(base, 'prev', None):
+            base = replace(base, prev=replace(prev, post=[]))
         return ProxyLevel(
             (h, w, c),
             post=base.post,
@@ -123,10 +130,6 @@ class ImageLevel(Image, HasParts):
 
     def decimate(self, dst: float, src: int = 1) -> tuple[int, 'ImageLevel']:
         return (src, self)
-
-    def join(self, lv: 'ImageLevel') -> tuple[int, 'ImageLevel']:
-        ds = round2(lv.shape[0] / self.shape[0])
-        return ds, self
 
     def _unpack_2d_loc(self, *loc:
                        Span) -> tuple[np.ndarray, np.ndarray, Shape]:
@@ -289,3 +292,18 @@ class Driver:
     @property
     def bbox(self) -> tuple[slice, ...]:
         return slice(None), slice(None)
+
+    def build_pyramid(self, levels: Sequence[ImageLevel]
+                      ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+        if not levels:
+            raise TypeError('No tiled layers present')
+
+        full, *rest = levels
+        pyramid = {1: full}
+        for lv in rest:
+            ds = round2(full.shape[0] / lv.shape[0])
+            pyramid[ds] = lv
+
+        downsamples = tuple(sorted(pyramid))
+        levels = [pyramid[ds] for ds in downsamples]
+        return downsamples, levels
