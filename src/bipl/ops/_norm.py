@@ -61,7 +61,7 @@ class Normalizer:
 
     def _minmax_cdf(self, lab: np.ndarray) -> np.ndarray:
         lstar = lab[:, :, 0]  # (h w)
-        lo, hi = lstar.min(), lstar.max()
+        lo, hi = int(lstar.min()), int(lstar.max())  # Don't overflow
         return np.r_[
             np.zeros(lo, dtype='f4'),
             np.linspace(0, 1, hi - lo + 1, dtype='f4'),
