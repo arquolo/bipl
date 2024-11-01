@@ -10,8 +10,10 @@ from zipfile import ZipFile
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 from tqdm import tqdm
 
-_BASEURL = ('https://github.com/openslide/openslide-winbuild/releases/download'
-            '/v{version}/openslide-win64-{version}.zip')
+_BASEURL = (
+    'https://github.com/openslide/openslide-winbuild'
+    '/releases/download/v{version}/openslide-win64-{version}.zip'
+)
 _FILTERS = {
     '20221217': r'(libjpeg-62|libtiff-6|zlib1).dll',
     '20231011': r'.*\.dll',
@@ -45,8 +47,10 @@ def _download_dlls(folder: Path) -> None:
                 for zfpath in zf.namelist():
                     if not regex.fullmatch(Path(zfpath).name):
                         continue
-                    with zf.open(zfpath) as src, \
-                            (folder / Path(zfpath).name).open('wb') as dst:
+                    with (
+                        zf.open(zfpath) as src,
+                        (folder / Path(zfpath).name).open('wb') as dst,
+                    ):
                         shutil.copyfileobj(src, dst)
     except BaseException:
         for p in folder.glob('*.dll'):

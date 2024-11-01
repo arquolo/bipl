@@ -12,12 +12,13 @@ from bipl._types import NDIndex, NumpyLike, Shape, Tile, Vec
 
 from ._util import crop_to, rescale_crop
 
-_Op = Callable[[Tile], tuple[Tile, ...]]
+_Op = Callable[[Tile], list[Tile]]
 
 
 @dataclass(frozen=True, slots=True)
 class Stripper:
     """Strips regions outside of `data.shape`. Produces non-square patches"""
+
     shape: Shape
 
     def __call__(self, tile: Tile) -> Tile:
@@ -32,7 +33,7 @@ class Decimator:
 
     def __call__(self, tile: Tile) -> Tile:
         stride = self.stride
-        vec = *(c // stride for c in tile.vec),
+        vec = tuple(c // stride for c in tile.vec)
         data = tile.data[::stride, ::stride]
         return Tile(idx=tile.idx, vec=vec, data=data)
 
@@ -55,13 +56,14 @@ class Zipper:
 
         loc = ((c0, c0 + size) for c0, size in zip(tile.vec, tsize))
         r = rescale_crop(
-            self.v, *loc, scale=self.v_scale, interpolation=self.interpolation)
-
+            self.v, *loc, scale=self.v_scale, interpolation=self.interpolation
+        )
         return tile.idx, tile.vec, tile.data, r
 
 
 class Reconstructor:
     """Rebuilds full tiles from parts"""
+
     def __init__(self, overlap: int, cells: npt.NDArray[np.bool_]):
         assert overlap
         self.overlap = overlap
@@ -74,8 +76,9 @@ class Reconstructor:
 
         # Lazy init, first part is always whole
         if self.row.default_factory is None:
-            self.row.default_factory = partial(np.empty, part.shape,
-                                               part.dtype)
+            self.row.default_factory = partial(
+                np.empty, part.shape, part.dtype
+            )
 
         if (tile := self.row.pop(ix, None)) is not None:
             # Incoming tile is always bottom-right aligned to the full one
@@ -110,7 +113,8 @@ class BlendCropper:
 
     NOTE: Each tile can make up to 4 parts.
     """
-    __slots__ = ('overlap', 'call', 'cells', 'size')
+
+    __slots__ = ('call', 'cells', 'overlap', 'size')
 
     size: int
     cells: dict[NDIndex, npt.NDArray[np.bool_]]
@@ -215,47 +219,56 @@ def _center(pad: int, tile: Tile) -> Tile:
     return Tile((2 * ix, 2 * iy), (y + pad, x + pad), data[pad:-pad, pad:-pad])
 
 
-def _vert_edge(pad: int, buf: deque[Tile], left: np.ndarray,
-               tile: Tile) -> tuple[()]:
+def _vert_edge(
+    pad: int, buf: deque[Tile], left: np.ndarray, tile: Tile
+) -> list[Tile]:
     # [- - -]    [- - -]
     # [- - X] -> [R - -]
     # [- - -]    [- - -]
     (iy, ix), (y, x), right = tile
-    tile = Tile((iy * 2, ix * 2 - 1), (y + pad, x),
-                left[pad:-pad, -pad:] + right[pad:-pad, :pad])
+    tile = Tile(
+        (iy * 2, ix * 2 - 1),
+        (y + pad, x),
+        left[pad:-pad, -pad:] + right[pad:-pad, :pad],
+    )
     buf.append(tile)
-    return ()
+    return []
 
 
-def _horz_edge(pad: int, top: np.ndarray, tile: Tile) -> tuple[Tile]:
+def _horz_edge(pad: int, top: np.ndarray, tile: Tile) -> list[Tile]:
     # [- - -]    [- R -]
     # [- - -] -> [- - -]
     # [- X -]    [- - -]
     (iy, ix), (y, x), bottom = tile
-    tile = Tile((2 * iy - 1, 2 * ix), (y, x + pad),
-                top[-pad:, pad:-pad] + bottom[:pad, pad:-pad])
-    return tile,
+    tile = Tile(
+        (2 * iy - 1, 2 * ix),
+        (y, x + pad),
+        top[-pad:, pad:-pad] + bottom[:pad, pad:-pad],
+    )
+    return [tile]
 
 
-def _angle(pad: int, idx: NDIndex,
-           data: np.ndarray) -> Generator[tuple[()], Tile, tuple[Tile]]:
+def _angle(
+    pad: int, idx: NDIndex, data: np.ndarray
+) -> Generator[list[Tile], Tile, list[Tile]]:
     # [- . -]    [- . -]    [- . X]    [R . -]
     # [. . .] -> [. . .] -> [. . .] -> [. . .]
     # [- . X]    [X . -]    [- . -]    [- . -]
 
     # top-left + top-right
-    data = data[-pad:, -pad:] + (yield ()).data[-pad:, :pad]
+    data = data[-pad:, -pad:] + (yield []).data[-pad:, :pad]
     # bottom-left
-    data += (yield ()).data[:pad, -pad:]
+    data += (yield []).data[:pad, -pad:]
     # bottom-right
-    _, vec, last = yield ()
+    _, vec, last = yield []
     data += last[:pad, :pad]
 
-    return Tile(idx, vec, data),
+    return [Tile(idx, vec, data)]
 
 
-def _final_send(coro: Generator[tuple[()], Tile, tuple[Tile]],
-                tile: Tile) -> tuple[Tile]:
+def _final_send(
+    coro: Generator[list[Tile], Tile, list[Tile]], tile: Tile
+) -> list[Tile]:
     try:
         coro.send(tile)
     except StopIteration as stop:

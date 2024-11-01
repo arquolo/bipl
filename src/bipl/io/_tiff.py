@@ -33,8 +33,13 @@ from bipl._types import NDIndex, Patch, Shape, Span
 
 from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel
-from ._util import (Icc, get_aperio_properties, get_ventana_properties,
-                    parse_xml, unflatten)
+from ._util import (
+    Icc,
+    get_aperio_properties,
+    get_ventana_properties,
+    parse_xml,
+    unflatten,
+)
 
 _U8 = npt.NDArray[np.uint8]
 _U64 = npt.NDArray[np.uint64]
@@ -42,8 +47,9 @@ _U64 = npt.NDArray[np.uint64]
 TIFF = load_library('libtiff', 6, 5)
 # _TIFF.TIFFSetErrorHandler(None)
 
-(TIFF.TIFFOpenW if sys.platform == 'win32' else TIFF.TIFFOpen).restype \
-    = POINTER(c_ubyte)
+(TIFF.TIFFOpenW if sys.platform == 'win32' else TIFF.TIFFOpen).restype = (
+    POINTER(c_ubyte)
+)
 
 _RESOLUTION_UNITS = {2: 25400, 3: 10000}
 
@@ -200,7 +206,7 @@ class _Tags:
         self.yuv_bw = np.array([], 'f4')  # BW pairs, per channel
 
         if self.color is _ColorSpace.YCBCR:
-            self.gray = np.array([.299, .587, .114], 'f4')
+            self.gray = np.array([0.299, 0.587, 0.114], 'f4')
             self.gray = ifd.get(_Tag.YUV_COEFFICIENTS, self.gray)
 
             # YCbCr subsampling H/W, i.e:
@@ -224,8 +230,11 @@ class _Tags:
 
     @property
     def image_shape(self) -> Shape:
-        return (self.ifd[_Tag.IMAGE_HEIGHT], self.ifd[_Tag.IMAGE_WIDTH],
-                self.ifd[_Tag.SAMPLES_PER_PIXEL])
+        return (
+            self.ifd[_Tag.IMAGE_HEIGHT],
+            self.ifd[_Tag.IMAGE_WIDTH],
+            self.ifd[_Tag.SAMPLES_PER_PIXEL],
+        )
 
     @property
     def tile_shape(self) -> Shape | None:
@@ -240,7 +249,9 @@ class _Tags:
 
     def tile_spans(self, shape: Shape, tile_shape: Shape) -> _U64:
         """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
-        grid_shape = *(len(range(0, s, t)) for s, t in zip(shape, tile_shape)),
+        grid_shape = tuple(
+            len(range(0, s, t)) for s, t in zip(shape, tile_shape)
+        )
 
         tbs: _U64 = np.reshape(self.ifd[_Tag.TILE_OFFSETS], grid_shape)
         tbc: _U64 = np.reshape(self.ifd[_Tag.TILE_NBYTES], grid_shape)
@@ -277,8 +288,9 @@ class _Tags:
 
         match vendor:
             case 'ventana':  # BIF of Roche
-                if ((xmp := self.ifd.get(_Tag.XMP)) is not None
-                        and (meta := get_ventana_properties(xmp, index))):
+                if (xmp := self.ifd.get(_Tag.XMP)) is not None and (
+                    meta := get_ventana_properties(xmp, index)
+                ):
                     return description, meta
                 if index != 0:
                     return description, {}
@@ -317,11 +329,13 @@ class _Tags:
             return float(mpp_s) if (mpp_s := meta.get('ScanRes')) else None
 
         res_unit_kind = self.ifd.get(_Tag.RES_UNIT)
-        if (res_unit_kind
-                and (res_unit := _RESOLUTION_UNITS.get(res_unit_kind))):
+        if res_unit_kind and (
+            res_unit := _RESOLUTION_UNITS.get(res_unit_kind)
+        ):
             mpp_xy = [
                 res_unit / ppu
-                for t in (_Tag.RES_Y, _Tag.RES_X) if (ppu := self.ifd.get(t))
+                for t in (_Tag.RES_Y, _Tag.RES_X)
+                if (ppu := self.ifd.get(t))
             ]
             if mpp_xy and (mpp := float(np.mean(mpp_xy))):
                 return mpp
@@ -378,9 +392,9 @@ class _Image(_BaseImage):
 
         # TODO: find offset & size of such images
         with self.tiff.ifd(self.index) as ptr:
-            ok = TIFF.TIFFReadRGBAImageOriented(ptr, w, h,
-                                                c_void_p(rgba.ctypes.data), 1,
-                                                0)
+            ok = TIFF.TIFFReadRGBAImageOriented(
+                ptr, w, h, c_void_p(rgba.ctypes.data), 1, 0
+            )
             if not ok:
                 raise ValueError('TIFF image read failed')
 
@@ -397,7 +411,8 @@ class _JpegDecoder:
 
     def __call__(self, buf: bytes) -> _U8:
         return imagecodecs.jpeg_decode(
-            buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB')
+            buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB'
+        )
 
 
 @dataclass(eq=False, frozen=True, kw_only=True)
@@ -423,7 +438,7 @@ class _Level(ImageLevel, _BaseImage):
         if steps <= 0:  # No need or cannot decimate
             return (src, self)
 
-        ds = 2 ** steps
+        ds = 2**steps
         h, w, c = self.shape
 
         prev = self.prev
@@ -444,8 +459,11 @@ class _Level(ImageLevel, _BaseImage):
         return (src * ds, lv)
 
     def __eq__(self, rhs) -> bool:
-        return (type(self) is type(rhs) and self.memo is rhs.memo
-                and self.shape == rhs.shape)
+        return (
+            type(self) is type(rhs)
+            and self.memo is rhs.memo
+            and self.shape == rhs.shape
+        )
 
     def __hash__(self) -> int:
         return hash(self.memo) ^ hash(self.shape)
@@ -482,12 +500,12 @@ class _Level(ImageLevel, _BaseImage):
         return self._postprocess(im)
 
     def part(self, *loc: Span) -> _U8:
-        (_, p), = self.parts([loc])
+        [(_, p)] = self.parts([loc])
         return p
 
-    def parts(self,
-              locs: Sequence[tuple[Span, ...]],
-              max_workers: int = 0) -> Iterator[Patch]:
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
         if not locs:
             return
         n = len(locs)
@@ -508,8 +526,9 @@ class _Level(ImageLevel, _BaseImage):
         ] = {}
 
         counts = np.zeros(n, int)  # num used tiles
-        box_ids, mins_, vboxes, i_lows, i_highs, counts_, o_locs \
-            = self._init_index(boxes)
+        box_ids, mins_, vboxes, i_lows, i_highs, counts_, o_locs = (
+            self._init_index(boxes)
+        )
         counts[box_ids] = counts_
         for i, *args in zip(box_ids.tolist(), mins_, vboxes, i_lows, i_highs):
             for iyx, oyx, tyx in self._make_subindex(*args):
@@ -537,8 +556,10 @@ class _Level(ImageLevel, _BaseImage):
 
         if self.prev is not None:
             prev_parts = self.prev.parts(
-                [((iy * th, iy * th + th), (ix * tw, ix * tw + tw))
-                 for iy, ix, _ in nulls],
+                [
+                    ((iy * th, iy * th + th), (ix * tw, ix * tw + tw))
+                    for iy, ix, _ in nulls
+                ],
                 max_workers=max_workers,
             )
             prev_tiles = ((i, a) for i, (_, a) in zip(nulls, prev_parts))
@@ -549,8 +570,9 @@ class _Level(ImageLevel, _BaseImage):
         tiles = zip(ids, starmap_n(self.tile, ids, max_workers=max_workers))
 
         # Unwrap & build patches
-        rois: dict[int, tuple[Span, ...]] \
-            = dict(zip(box_ids.tolist(), o_locs.tolist()))
+        rois: dict[int, tuple[Span, ...]] = dict(
+            zip(box_ids.tolist(), o_locs.tolist())
+        )
         for iyx, tile in chain(prev_tiles, tiles):
 
             # Update all parts using current tile
@@ -574,10 +596,15 @@ class _Level(ImageLevel, _BaseImage):
                 yield buf.pop(pos)
                 pos += 1
 
-    def _init_index(
-            self, boxes: np.ndarray  # (n yx lo/hi)
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
-               np.ndarray, np.ndarray]:
+    def _init_index(self, boxes: np.ndarray) -> tuple[  # (n yx lo/hi)
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
         shape = np.reshape(self.shape[:2], (2, 1))
         tile_size = np.reshape(self.tile_shape[:2], (1, 2))
 
@@ -591,7 +618,7 @@ class _Level(ImageLevel, _BaseImage):
 
         # (n), drop empty "valid" boxes
         mask = vbox_sizes.all(-1)
-        box_ids, = mask.nonzero()
+        [box_ids] = mask.nonzero()
         mins_, box_sizes, vboxes = mins_[mask], box_sizes[mask], vboxes[mask]
 
         # (n yx)
@@ -623,8 +650,9 @@ class _Level(ImageLevel, _BaseImage):
         ids = map(range, i_lo, i_hi)
         oxs: list[list[slice]] = []
         txs: list[list[slice]] = []
-        for i_lo_, i_hi_1, tsize, vspan, amin_ in zip(i_lo, i_hi + 1,
-                                                      tile_size, vbox, min_):
+        for i_lo_, i_hi_1, tsize, vspan, amin_ in zip(
+            i_lo, i_hi + 1, tile_size, vbox, min_
+        ):
             # (n + 1)
             ts = np.arange(i_lo_, i_hi_1) * tsize
             vts = ts.clip(*vspan)
@@ -654,8 +682,10 @@ class Tiff(Driver):
     def __init__(self, path: str) -> None:
         # Open TIFF in read-only (`r`) mode and disable memory mapping (`m`)
         self._ptr = (
-            TIFF.TIFFOpenW(path, b'rm') if sys.platform == 'win32' else
-            TIFF.TIFFOpen(path.encode(), b'rm'))
+            TIFF.TIFFOpenW(path, b'rm')
+            if sys.platform == 'win32'
+            else TIFF.TIFFOpen(path.encode(), b'rm')
+        )
         if not self._ptr:
             raise ValueError('libtiff failed to open file')
 
@@ -670,24 +700,31 @@ class Tiff(Driver):
         self._ifds = list(self._iter_ifds())
 
         # Directory 0 is main
-        self.vendor, self._head, self._meta, self.mpp, self._bg_color \
-            = self._ifds[0].properties()
+        self.vendor, self._head, self._meta, self.mpp, self._bg_color = (
+            self._ifds[0].properties()
+        )
 
     def _iter_ifds(self) -> Iterator[_Tags]:
         f = self._memo
         magic = f[:8]
 
-        if magic[:4] in (b'II*\0', b'MM\0*'):
+        if magic[:4] in {b'II*\0', b'MM\0*'}:
             usize = 4
             t_head = np.dtype('u2')
-        elif magic in (b'II+\0\x08\0\0\0', b'MM\0+\0\x08\0\0'):
+        elif magic in {b'II+\0\x08\0\0\0', b'MM\0+\0\x08\0\0'}:
             usize = 8
             t_head = np.dtype('u8')
         else:
             raise ValueError(f'Unknown magic: {magic.hex("-", 2)}')
 
-        t_body = np.dtype([('tag', 'u2'), ('type', 'u2'),
-                           ('count', f'u{usize}'), ('value', f'{usize}u1')])
+        t_body = np.dtype(
+            [
+                ('tag', 'u2'),
+                ('type', 'u2'),
+                ('count', f'u{usize}'),
+                ('value', f'{usize}u1'),
+            ]
+        )
         o_dt = np.dtype(f'u{usize}')
         dtypes = _DTYPES
         if sys.byteorder != {b'II': 'little', b'MM': 'big'}[magic[:2]]:
@@ -696,24 +733,32 @@ class Tiff(Driver):
             o_dt = o_dt.newbyteorder()
             dtypes = {i: dt.newbyteorder() for i, dt in dtypes.items()}
 
-        pos = np.frombuffer(f[usize:usize * 2], o_dt).item()
+        pos = np.frombuffer(f[usize : usize * 2], o_dt).item()
         while pos:
             # Read IFD header
-            num_tags = np.frombuffer(f[pos:pos + t_head.itemsize],
-                                     t_head).item()
+            num_tags = np.frombuffer(
+                f[pos : pos + t_head.itemsize], t_head
+            ).item()
             pos += t_head.itemsize
 
             # Read tags
-            ts = np.frombuffer(f[pos:pos + t_body.itemsize * num_tags], t_body)
+            ts = np.frombuffer(
+                f[pos : pos + t_body.itemsize * num_tags], t_body
+            )
             pos += t_body.itemsize * num_tags
 
             yield self._parse_ifd(f, ts, o_dt=o_dt, dtypes=dtypes)
 
             # Jump to next IFD
-            pos = np.frombuffer(f[pos:pos + usize], o_dt).item()
+            pos = np.frombuffer(f[pos : pos + usize], o_dt).item()
 
-    def _parse_ifd(self, f: '_File', ts: np.ndarray, o_dt: np.dtype,
-                   dtypes: Mapping[int, np.dtype]) -> _Tags:
+    def _parse_ifd(
+        self,
+        f: mmap.mmap,
+        ts: np.ndarray,
+        o_dt: np.dtype,
+        dtypes: Mapping[int, np.dtype],
+    ) -> _Tags:
 
         m = np.isin(ts['tag'], _TAG_NAMES_A) & np.isin(ts['type'], _DTYPES_A)
         if (unknown := ts[~m][['tag', 'type']]).size:
@@ -728,7 +773,7 @@ class Tiff(Driver):
 
             if size > o_dt.itemsize:
                 o = value.view(o_dt).item()
-                v = np.frombuffer(f[o:o + size], dt.base)
+                v = np.frombuffer(f[o : o + size], dt.base)
             else:
                 v = value[:size].view(dt.base)
 
@@ -753,8 +798,10 @@ class Tiff(Driver):
             (_Tag.COLORSPACE, _ColorSpace),
             (_Tag.ORIENTATION, _Orientation),
             (_Tag.PLANAR, _Planarity),
-            (_Tag.DATETIME,
-             lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S')),
+            (
+                _Tag.DATETIME,
+                lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S'),
+            ),
             (_Tag.REF_BLACK_WHITE, lambda x: x.reshape(3, 2)),
             (_Tag.ICC_PROFILE, Icc),
         ]:
@@ -794,8 +841,9 @@ class Tiff(Driver):
             head, _ = r
 
         if tags.color is _ColorSpace.YCBCR and tags.subsampling != (2, 2):
-            raise ValueError('Unsupported YUV subsampling: '
-                             f'{tags.subsampling}')
+            raise ValueError(
+                f'Unsupported YUV subsampling: {tags.subsampling}'
+            )
 
         shape = tags.image_shape
         tile_shape = tags.tile_shape
@@ -822,8 +870,9 @@ class Tiff(Driver):
             fill=self._bg_color,
         )
 
-    def build_pyramid(self, levels: Sequence[ImageLevel]
-                      ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+    def build_pyramid(
+        self, levels: Sequence[ImageLevel]
+    ) -> tuple[tuple[int, ...], list[ImageLevel]]:
         downsamples, levels = super().build_pyramid(levels)
 
         if self.vendor != 'aperio':
@@ -861,7 +910,7 @@ class Tiff(Driver):
 
 
 class _CacheZYXC:
-    __slots__ = ('lock', 'used', 'buf')
+    __slots__ = ('buf', 'lock', 'used')
 
     def __init__(self) -> None:
         self.lock = Lock()
@@ -869,8 +918,10 @@ class _CacheZYXC:
         self.buf: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
 
     def __repr__(self) -> str:
-        return (f'{type(self).__name__}'
-                f'(used={si_bin(self.used)}, items={len(self.buf)})')
+        return (
+            f'{type(self).__name__}'
+            f'(used={si_bin(self.used)}, items={len(self.buf)})'
+        )
 
     def __getitem__(self, key: tuple) -> _U8 | None:
         with self.lock:
@@ -885,7 +936,8 @@ class _CacheZYXC:
         if size > capacity:
             warnings.warn(
                 f'Rejecting overlarge cache entry of size {size} bytes',
-                stacklevel=3)
+                stacklevel=3,
+            )
             return
         max_size = capacity - size
         with self.lock:

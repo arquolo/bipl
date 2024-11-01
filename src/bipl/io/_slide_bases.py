@@ -28,8 +28,9 @@ _MIN_TILE = 256
 class Image:
     shape: Shape
     dtype = np.dtype(np.uint8)
-    post: list[Callable[[np.ndarray],
-                        np.ndarray]] = field(default_factory=list)
+    post: list[Callable[[np.ndarray], np.ndarray]] = field(
+        default_factory=list
+    )
 
     @property
     def key(self) -> str | None:
@@ -103,8 +104,10 @@ class ImageLevel(Image, HasParts):
             downsample = 2 ** (int(1 / scale).bit_length() - 1)
             r_tile = max(_MIN_TILE // downsample, 1)
             bh, bw, bc = base.shape
-            bh, bw = ((bh + downsample - 1) // downsample,
-                      (bw + downsample - 1) // downsample)
+            bh, bw = (
+                (bh + downsample - 1) // downsample,
+                (bw + downsample - 1) // downsample,
+            )
 
             scale *= downsample
             if prev := getattr(base, 'prev', None):
@@ -131,8 +134,9 @@ class ImageLevel(Image, HasParts):
     def decimate(self, dst: float, src: int = 1) -> tuple[int, 'ImageLevel']:
         return (src, self)
 
-    def _unpack_2d_loc(self, *loc:
-                       Span) -> tuple[np.ndarray, np.ndarray, Shape]:
+    def _unpack_2d_loc(
+        self, *loc: Span
+    ) -> tuple[np.ndarray, np.ndarray, Shape]:
         box = np.array(loc)  # box[axis, {start, stop}]
 
         # Slices guarantied to be within image shape
@@ -140,17 +144,28 @@ class ImageLevel(Image, HasParts):
         valid_box = box.clip(0, [[h], [w]])
 
         # Full output shape
-        out_shape = *(box @ [-1, 1]).tolist(),
+        out_shape = tuple((box @ [-1, 1]).tolist())
         return box, valid_box, out_shape
 
     @staticmethod
-    def _expand(rgb: np.ndarray, valid_box: np.ndarray, box: np.ndarray,
-                bg_color: np.ndarray) -> np.ndarray:
+    def _expand(
+        rgb: np.ndarray,
+        valid_box: np.ndarray,
+        box: np.ndarray,
+        bg_color: np.ndarray,
+    ) -> np.ndarray:
         offsets = np.abs(valid_box - box)
         if offsets.any():
-            tp, bm, lt, rt = offsets.ravel().tolist()
-            rgb = cv2.copyMakeBorder(rgb, tp, bm, lt, rt, cv2.BORDER_CONSTANT,
-                                     None, bg_color.tolist())
+            top, bottom, left, right = offsets.ravel().tolist()
+            rgb = cv2.copyMakeBorder(
+                rgb,
+                top,
+                bottom,
+                left,
+                right,
+                borderType=cv2.BORDER_CONSTANT,
+                value=bg_color.tolist(),
+            )
         return np.ascontiguousarray(rgb)
 
 
@@ -161,20 +176,22 @@ class ProxyLevel(ImageLevel):
 
     def part(self, *loc: Span) -> np.ndarray:
         im = rescale_crop(
-            self.base, *loc, scale=1 / self.scale, interpolation=1)
+            self.base, *loc, scale=1 / self.scale, interpolation=1
+        )
         return self._postprocess(im)
 
-    def parts(self,
-              locs: Sequence[tuple[Span, ...]],
-              max_workers: int = 0) -> Iterator[Patch]:
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
         scale = 1 / self.scale
         o_locs = np.asarray(locs, 'i4')  # (n yx lo/hi)
         n = o_locs.shape[0]
 
         i_locs_f = o_locs * scale
-        i_locs = np.stack(
-            [afloor(i_locs_f[:, :, 0], 'i4'),
-             aceil(i_locs_f[:, :, 1], 'i4')], -1)  # (n yx lo/hi)
+        i_locs = np.stack(  # (n yx lo/hi)
+            [afloor(i_locs_f[:, :, 0], 'i4'), aceil(i_locs_f[:, :, 1], 'i4')],
+            -1,
+        )
         sizes = o_locs @ [-1, 1]  # (n yx)
 
         # Transformation matrix, (n xy xyc)
@@ -182,7 +199,8 @@ class ProxyLevel(ImageLevel):
         mats[:, 0, 0] = scale
         mats[:, 1, 1] = scale
         mats[:, :, 2] = (
-            i_locs_f[:, ::-1, 0] - i_locs[:, ::-1, 0] + (scale - 1) / 2)
+            i_locs_f[:, ::-1, 0] - i_locs[:, ::-1, 0] + (scale - 1) / 2
+        )
 
         # Map input -> output
         i_locs_lst: list[tuple[Span, ...]]
@@ -217,14 +235,15 @@ class TiledProxyLevel(ImageLevel):
     def part(self, *loc: Span) -> np.ndarray:
         s_start = [lo * self.downsample for lo, _ in loc]
 
-        r_shape = *(hi - lo for lo, hi in loc),
-        s_shape = *(size * self.downsample for size in r_shape),
+        r_shape = tuple(hi - lo for lo, hi in loc)
+        s_shape = tuple(size * self.downsample for size in r_shape)
         if not all(s_shape):
             return np.empty((*r_shape, self.base.shape[2]), self.dtype)
 
         if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
-            s_loc = *((lo * self.downsample, hi * self.downsample)
-                      for lo, hi in loc),
+            s_loc = tuple(
+                (lo * self.downsample, hi * self.downsample) for lo, hi in loc
+            )
             return resize(self.base.part(*s_loc), r_shape[:2])
 
         r_tile = self.r_tile
@@ -238,8 +257,10 @@ class TiledProxyLevel(ImageLevel):
             Tile,
             tgrid.tolist(),
             (tgrid * r_tile).tolist(),
-            (resize(self.base[sy:sy + s_tile, sx:sx + s_tile], t_shape)
-             for sy, sx in (tgrid * s_tile + s_start).tolist()),
+            (
+                resize(self.base[sy : sy + s_tile, sx : sx + s_tile], t_shape)
+                for sy, sx in (tgrid * s_tile + s_start).tolist()
+            ),
         )
         image = get_fusion(r_tiles, r_shape)
         assert image is not None
@@ -293,8 +314,9 @@ class Driver:
     def bbox(self) -> tuple[slice, ...]:
         return slice(None), slice(None)
 
-    def build_pyramid(self, levels: Sequence[ImageLevel]
-                      ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+    def build_pyramid(
+        self, levels: Sequence[ImageLevel]
+    ) -> tuple[tuple[int, ...], list[ImageLevel]]:
         if not levels:
             raise TypeError('No tiled layers present')
 

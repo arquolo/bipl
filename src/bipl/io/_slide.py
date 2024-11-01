@@ -7,7 +7,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import final, overload
+from typing import Literal, final, overload
 from warnings import warn
 
 import numpy as np
@@ -28,11 +28,13 @@ def _load_drivers() -> None:
     if os.name == 'nt':
         gdal_warn = (
             'Ensure it was properly installed or acquire it manually from '
-            'https://github.com/cgohlke/geospatial-wheels/releases')
+            'https://github.com/cgohlke/geospatial-wheels/releases'
+        )
     else:
         gdal_warn = (
             'Ensure it was properly installed, and run '
-            '"pip install wheel && pip install gdal==`gdal-config --version`"')
+            '"pip install wheel && pip install gdal==`gdal-config --version`"'
+        )
 
     imports = {
         'openslide': ('._openslide', 'Openslide', ''),
@@ -62,11 +64,10 @@ def _load_drivers() -> None:
         raise ImportError('No drivers loaded')
 
     for drvname, pat in [  # LIFO, last driver takes priority
-        ('gdal', r'^.*\.(tif|tiff)$'),
-        ('openslide',
-         r'^.*\.(bif|mrxs|ndpi|scn|svs|svsslide|tif|tiff|vms|vmu)$'),
-        ('tiff', r'^.*\.(bif|svs|tif|tiff)$'),
-        ('gdal', r'^(/vsicurl|(http|https|ftp)://).*$'),
+        ('gdal', r'^.*\.tiff?$'),
+        ('openslide', r'^.*\.(bif|mrxs|ndpi|scn|svs(|slide)|tiff?|vms|vmu)$'),
+        ('tiff', r'^.*\.(bif|ndpi|svs|tiff?)$'),
+        ('gdal', r'^(/vsicurl|(https?|ftp)://).*$'),
     ]:
         if drv := drivers.get(drvname):
             drv.register(pat)
@@ -107,6 +108,7 @@ class Slide(HasParts):
     image: np.ndarray = slide[:2048, :2048]
     ```
     """
+
     # TODO: check if memory leak
     # TODO: add __enter__/__exit__/close to make memory management explicit
     # TODO: call .close in finalizer
@@ -168,7 +170,7 @@ class Slide(HasParts):
     def icc(self) -> 'Slide':
         changes = {}
         if icc_0 := self.levels[0].icc:
-            changes['levels'] = *(il.apply(icc_0) for il in self.levels),
+            changes['levels'] = tuple(il.apply(icc_0) for il in self.levels)
         if any(e.icc for e in self.extras.values()):
             changes['extras'] = {
                 t: e.apply(e.icc) if e.icc else e
@@ -186,7 +188,7 @@ class Slide(HasParts):
         ref = self.resample(mpp=mpp).numpy()
         normalize = Normalizer(ref, weight=weight, channels=channels, r=r)
 
-        levels = *(il.apply(normalize) for il in self.levels),
+        levels = tuple(il.apply(normalize) for il in self.levels)
         extras = {
             k: i.apply(normalize) if k == 'thumbnail' else i
             for k, i in self.extras.items()
@@ -203,7 +205,8 @@ class Slide(HasParts):
         warnings.warn(
             '"Slide.pools" is deprecated. Use "Slide.downsamples"',
             category=DeprecationWarning,
-            stacklevel=2)
+            stacklevel=2,
+        )
         return self.downsamples
 
     @property
@@ -211,11 +214,12 @@ class Slide(HasParts):
         warnings.warn(
             '"Slide.spacing" is deprecated. Use "Slide.mpp"',
             category=DeprecationWarning,
-            stacklevel=2)
+            stacklevel=2,
+        )
         return self.mpp
 
     def __reduce__(self) -> tuple:
-        return Slide.open, (self.path, )
+        return Slide.open, (self.path,)
 
     def best_level_for(
         self,
@@ -254,39 +258,43 @@ class Slide(HasParts):
     def part(self, *loc: Span) -> np.ndarray:
         return self.levels[0].part(*loc)
 
-    def parts(self,
-              locs: Sequence[tuple[Span, ...]],
-              max_workers: int = 0) -> Iterator[Patch]:
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
         return self.levels[0].parts(locs, max_workers=max_workers)
 
     def numpy(self) -> np.ndarray:
         return self.levels[0].numpy()
 
     @overload
-    def at(self,
-           z0_yx_offset: Vec,
-           dsize: int | Shape,
-           *,
-           scale: float,
-           tol: float = ...) -> np.ndarray:
-        ...
+    def at(
+        self,
+        z0_yx_offset: Vec,
+        dsize: int | Shape,
+        *,
+        scale: float,
+        tol: float = ...,
+    ) -> np.ndarray: ...
 
     @overload
-    def at(self,
-           z0_yx_offset: Vec,
-           dsize: int | Shape,
-           *,
-           mpp: float,
-           tol: float = ...) -> np.ndarray:
-        ...
+    def at(
+        self,
+        z0_yx_offset: Vec,
+        dsize: int | Shape,
+        *,
+        mpp: float,
+        tol: float = ...,
+    ) -> np.ndarray: ...
 
-    def at(self,
-           z0_yx_offset: Vec,
-           dsize: int | Shape,
-           *,
-           scale: float | None = None,
-           mpp: float | None = None,
-           tol: float = 0.01) -> np.ndarray:
+    def at(
+        self,
+        z0_yx_offset: Vec,
+        dsize: int | Shape,
+        *,
+        scale: float | None = None,
+        mpp: float | None = None,
+        tol: float = 0.01,
+    ) -> np.ndarray:
         """Read square region starting with offset"""
         dsize = dsize if isinstance(dsize, Sequence) else (dsize, dsize)
         if len(dsize) != 2:
@@ -299,8 +307,8 @@ class Slide(HasParts):
 
         ds, lvl = self.best_level_for(1 / scale, tol=tol)
 
-        yx_offset = *(int(c * scale) for c in z0_yx_offset),
-        loc = *((c, c + size) for c, size in zip(yx_offset, dsize)),
+        yx_offset = tuple(int(c * scale) for c in z0_yx_offset)
+        loc = tuple((c, c + size) for c, size in zip(yx_offset, dsize))
         return rescale_crop(lvl, *loc, scale=1 / ds / scale, interpolation=1)
 
     def extra(self, name: str) -> np.ndarray | None:
@@ -312,12 +320,14 @@ class Slide(HasParts):
         return self.extras.get('thumbnail', self.levels[-1]).numpy()
 
     @classmethod
-    def open(cls,
-             anypath: Path | str,
-             /,
-             *,
-             icc: bool = env.BIPL_ICC,
-             norm: bool | float = env.BIPL_NORM) -> 'Slide':
+    def open(
+        cls,
+        anypath: Path | str,
+        /,
+        *,
+        icc: bool = env.BIPL_ICC,
+        norm: bool | float = env.BIPL_NORM,
+    ) -> 'Slide':
         """Open multi-scale image."""
         if isinstance(anypath, Path):  # Filesystem
             anypath = anypath.resolve().absolute().as_posix()

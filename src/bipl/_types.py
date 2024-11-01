@@ -23,21 +23,21 @@ type Vec = tuple[int, ...]  # N-dim radius-vector to some point
 
 class NumpyLike(Protocol):
     @property
-    def shape(self) -> Sequence[int]:
-        ...
+    def shape(self) -> Sequence[int]: ...
 
     @property
-    def dtype(self) -> np.dtype:
-        ...
+    def dtype(self) -> np.dtype: ...
 
-    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
-        ...
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray: ...
 
 
 class Tile(NamedTuple):
     idx: NDIndex
     vec: Vec
     data: np.ndarray
+
+    def shape(self) -> Shape:
+        return self.data.shape
 
 
 class Patch(NamedTuple):
@@ -50,9 +50,9 @@ class HasParts:
         """Reads crop of LOD. Overridable"""
         raise NotImplementedError
 
-    def parts(self,
-              locs: Sequence[tuple[Span, ...]],
-              max_workers: int = 0) -> Iterator[Patch]:
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
         return map_n(
             lambda loc: Patch(loc, self.part(*loc)),
             locs,

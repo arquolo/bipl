@@ -15,11 +15,10 @@ from ._slide_bases import Driver, ImageLevel
 from ._util import gdal_parse_mpp
 
 gdal.SetConfigOption('AWS_VIRTUAL_HOSTING', 'FALSE')
-gdal.SetConfigOption('CPL_VSIL_CURL_USE_HEAD', 'NO')  # use_head=no
-gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN',
-                     'EMPTY_DIR')  # list_dir=no
+gdal.SetConfigOption('CPL_VSIL_CURL_USE_HEAD', 'NO')  # use_head
+gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN', 'EMPTY_DIR')  # list_dir
 gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
-gdal.SetConfigOption('GDAL_HTTP_MAX_RETRY', '3')  # max_retry=3
+gdal.SetConfigOption('GDAL_HTTP_MAX_RETRY', '3')  # max_retry
 gdal.UseExceptions()
 
 _url_adapter = TypeAdapter(AnyHttpUrl)
@@ -83,11 +82,12 @@ class Gdal(Driver):
             raise ValueError(f'Unsupported driver {drv.ShortName}')
 
         self.num_channels = self.ds.RasterCount
-        if self.num_channels not in (3, 4):
+        if self.num_channels not in {3, 4}:
             raise ValueError('Unknown colorspace')
 
         self._bands: tuple[gdal.Band, ...] = tuple(
-            self.ds.GetRasterBand(i + 1) for i in range(self.num_channels))
+            self.ds.GetRasterBand(i + 1) for i in range(self.num_channels)
+        )
         self.dtype = np.dtype(gdal_array.flip_code(self._bands[0].DataType))
         if self.dtype != 'u1':
             raise ValueError(f'Unsupported dtype: {self.dtype}')
@@ -109,9 +109,11 @@ class Gdal(Driver):
         return 1 + self.ds.GetRasterBand(1).GetOverviewCount()
 
     def __getitem__(self, index: int) -> _Level:
-        bands: tuple[gdal.Band, ...] = tuple(
-            b if index == 0 else b.GetOverview(index - 1) for b in self._bands)
-
+        bands: tuple[gdal.Band, ...] = (
+            self._bands
+            if index == 0
+            else tuple(b.GetOverview(index - 1) for b in self._bands)
+        )
         shape = (bands[0].YSize, bands[0].XSize, self.num_channels)
         return _Level(shape, g=self, bands=bands)
 

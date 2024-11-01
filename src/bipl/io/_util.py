@@ -26,8 +26,9 @@ def unflatten(d: Mapping[str, str]) -> dict[str, Any]:
         for curr, next_ in zip_longest(parts, parts[1:], fillvalue=None):
             # Put list if next is list idx, otherwise put dict
             default: list | dict | str
-            default = v if next_ is None else (
-                [] if isinstance(next_, int) else {})
+            default = (
+                v if next_ is None else ([] if isinstance(next_, int) else {})
+            )
 
             if isinstance(curr, int):  # last was list idx
                 if not isinstance(rr, list):  # Ambigous structure
@@ -51,8 +52,9 @@ def _make_key(s: str, tab: Mapping[int, str | None]) -> tuple[str | int, ...]:
 # ---------------------------- aperio description ----------------------------
 
 
-def get_aperio_properties(description: str,
-                          index: int = 0) -> tuple[str, dict[str, str]] | None:
+def get_aperio_properties(
+    description: str, index: int = 0
+) -> tuple[str, dict[str, str]] | None:
     if index == 0 and not description.startswith('Aperio'):
         return None
     header, *kv_pairs = description.split('|')
@@ -67,8 +69,10 @@ def get_aperio_properties(description: str,
             case ['']:
                 continue
             case _:
-                raise ValueError(f'Cannot parse TIFF description line #{i}: '
-                                 f'{kv!r}, {description!r}')
+                raise ValueError(
+                    f'Cannot parse TIFF description line #{i}: '
+                    f'{kv!r}, {description!r}'
+                )
 
     return header, meta
 
@@ -86,12 +90,14 @@ def get_ventana_properties(s: bytes, index: int = 0) -> dict[str, str]:
     return {'xmp': s.decode()}
 
 
-def parse_xml(s: str,
-              /,
-              *,
-              group: str = 'property',
-              name: str = 'name',
-              value: str = 'value') -> dict[str, str]:
+def parse_xml(
+    s: str,
+    /,
+    *,
+    group: str = 'property',
+    name: str = 'name',
+    value: str = 'value',
+) -> dict[str, str]:
     t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
 
     # Remove a namespace URI in the element's name
@@ -153,9 +159,9 @@ def gdal_parse_mpp(meta: Mapping) -> list[float]:
 # ------------- contrast-limited adaptive histogram equalization -------------
 
 
-def clahe(im: np.ndarray,
-          cell_size: int = 64,
-          clip_limit: float = 2.0) -> np.ndarray:
+def clahe(
+    im: np.ndarray, cell_size: int = 64, clip_limit: float = 2.0
+) -> np.ndarray:
     h, w = im.shape[:2]
     gh, gw = (h // cell_size) or 1, (w // cell_size) or 1
     cl = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(gw, gh))
@@ -195,4 +201,4 @@ def floor2(x: float) -> int:
     return 1 << power
 
 
-_sqrt2 = 2 ** 0.5
+_sqrt2 = 2**0.5

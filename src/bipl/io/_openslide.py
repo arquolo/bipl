@@ -7,6 +7,7 @@ Driver based on OpenSlide
 
 To adjust tile cache size use BIPL_TILE_CACHE environment variable.
 """
+
 # TODO: handle viewport offsets
 
 __all__ = ['Openslide']
@@ -14,8 +15,18 @@ __all__ = ['Openslide']
 import atexit
 import weakref
 from collections.abc import Iterator
-from ctypes import (POINTER, addressof, byref, c_char_p, c_double, c_int32,
-                    c_int64, c_ubyte, c_uint64, c_void_p)
+from ctypes import (
+    POINTER,
+    addressof,
+    byref,
+    c_char_p,
+    c_double,
+    c_int32,
+    c_int64,
+    c_ubyte,
+    c_uint64,
+    c_void_p,
+)
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -36,18 +47,18 @@ sptr = POINTER(c_ubyte)
 OSD.openslide_open.restype = sptr
 OSD.openslide_close.argtypes = [sptr]
 
-OSD.openslide_get_version.restype \
-    = OSD.openslide_get_error.restype \
-    = OSD.openslide_get_property_value.restype \
-    = c_char_p
+OSD.openslide_get_version.restype = c_char_p
+OSD.openslide_get_error.restype = c_char_p
+OSD.openslide_get_property_value.restype = c_char_p
 
-OSD.openslide_get_property_names.restype \
-    = OSD.openslide_get_associated_image_names.restype \
-    = POINTER(c_char_p)
+OSD.openslide_get_property_names.restype = POINTER(c_char_p)
+OSD.openslide_get_associated_image_names.restype = POINTER(c_char_p)
 
 OSD.openslide_get_level_dimensions.argtypes = [
-    sptr, c_int32, POINTER(c_int64),
-    POINTER(c_int64)
+    sptr,  # openslide_t
+    c_int32,  # level
+    POINTER(c_int64),  # width
+    POINTER(c_int64),  # height
 ]
 
 OSD.openslide_get_level_downsample.argtypes = [sptr, c_int32]
@@ -55,7 +66,13 @@ OSD.openslide_get_level_downsample.restype = c_double
 OSD.openslide_read_associated_image.argtypes = [sptr, c_char_p, c_void_p]
 
 OSD.openslide_read_region.argtypes = [
-    sptr, c_void_p, c_int64, c_int64, c_int32, c_int64, c_int64
+    sptr,  # openslide_t
+    c_void_p,  # buffer
+    c_int64,  # x0
+    c_int64,  # y1
+    c_int32,  # level
+    c_int64,  # width
+    c_int64,  # height
 ]
 
 _VERSION = None
@@ -69,18 +86,18 @@ def _init_4x_icc():
     if not _OSD_4X:
         return
     OSD.openslide_get_icc_profile_size.argtypes = [sptr]
-    OSD.openslide_set_cache.argtypes = [sptr, sptr]
+    OSD.openslide_get_icc_profile_size.restype = c_int64
+    OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
 
     OSD.openslide_get_associated_image_icc_profile_size.argtypes = [
-        sptr, c_char_p
+        sptr,  # openslide_t
+        c_char_p,  # name
     ]
-    OSD.openslide_get_icc_profile_size.restype \
-        = OSD.openslide_get_associated_image_icc_profile_size.restype \
-        = c_int64
-
-    OSD.openslide_read_icc_profile.argtypes = [sptr, c_void_p]
+    OSD.openslide_get_associated_image_icc_profile_size.restype = c_int64
     OSD.openslide_read_associated_image_icc_profile.argtypes = [
-        sptr, c_char_p, c_void_p
+        sptr,  # openslide_t
+        c_char_p,  # name
+        c_void_p,  # buffer
     ]
 
 
@@ -148,8 +165,9 @@ class _Image(Image):
 
     def numpy(self) -> np.ndarray:
         bgra = np.empty((*self.shape[:2], 4), 'u1')
-        OSD.openslide_read_associated_image(self.osd.ptr, self.name,
-                                            c_void_p(bgra.ctypes.data))
+        OSD.openslide_read_associated_image(
+            self.osd.ptr, self.name, c_void_p(bgra.ctypes.data)
+        )
         rgb = _mbgra_to_rgb(bgra, self.osd.bg_color)
         rgb = np.ascontiguousarray(rgb)
         return self._postprocess(rgb)
@@ -158,16 +176,19 @@ class _Image(Image):
     def icc(self) -> Icc | None:
         if not _OSD_4X:
             raise NotImplementedError(
-                f'Openslide 4.x is required. Got {_VERSION}')
+                f'Openslide 4.x is required. Got {_VERSION}'
+            )
 
         size = OSD.openslide_get_associated_image_icc_profile_size(
-            self.osd.ptr, self.name)
+            self.osd.ptr, self.name
+        )
         if not size:
             return None
 
         buf = np.empty(size, 'u1')
         OSD.openslide_read_associated_image_icc_profile(
-            self.osd.ptr, self.name, c_void_p(buf.ctypes.data))
+            self.osd.ptr, self.name, c_void_p(buf.ctypes.data)
+        )
         return Icc(buf.tobytes())
 
 
@@ -248,7 +269,7 @@ class Openslide(Driver):
         names = OSD.openslide_get_property_names(self.ptr)
         r = {}
         for name in _ntas_to_iter(names):
-            if (value := OSD.openslide_get_property_value(self.ptr, name)):
+            if value := OSD.openslide_get_property_value(self.ptr, name):
                 try:
                     r[name.decode()] = value.decode()
                 except UnicodeDecodeError:
@@ -265,10 +286,12 @@ class Openslide(Driver):
         if downsample <= 0:
             raise ValueError(f'Invalid level downsample: {downsample}')
 
-        return _Level((h.value, w.value, 3),
-                      downsample=round2(downsample),
-                      index=index,
-                      osd=self)
+        return _Level(
+            (h.value, w.value, 3),
+            downsample=round2(downsample),
+            index=index,
+            osd=self,
+        )
 
     def keys(self) -> list[str]:
         names = OSD.openslide_get_associated_image_names(self.ptr)
@@ -277,26 +300,32 @@ class Openslide(Driver):
     def get(self, key: str) -> _Image:
         name = key.encode()
         w, h = c_int64(), c_int64()
-        OSD.openslide_get_associated_image_dimensions(self.ptr, name, byref(w),
-                                                      byref(h))
+        OSD.openslide_get_associated_image_dimensions(
+            self.ptr, name, byref(w), byref(h)
+        )
         return _Image((h.value, w.value, 3), name=name, osd=self)
 
     @property
     def bbox(self) -> tuple[slice, ...]:
         bbox = (
             self.osd_meta.get(f'bounds-{t}')
-            for t in ('y', 'x', 'height', 'width'))
+            for t in ('y', 'x', 'height', 'width')
+        )
         y0, x0, h, w = (
-            int(s) if s and s.strip().isdigit() else None for s in bbox)
-        y1, x1 = (o + s if o is not None and s is not None else None
-                  for o, s in [(y0, h), (x0, w)])
+            int(s) if s and s.strip().isdigit() else None for s in bbox
+        )
+        y1, x1 = (
+            o + s if o is not None and s is not None else None
+            for o, s in [(y0, h), (x0, w)]
+        )
         return slice(y0, y1), slice(x0, x1)
 
     @cached_property
     def icc(self) -> Icc | None:
         if not _OSD_4X:
             raise NotImplementedError(
-                f'Openslide 4.x is required. Got {_VERSION}')
+                f'Openslide 4.x is required. Got {_VERSION}'
+            )
 
         size = OSD.openslide_get_icc_profile_size(self.ptr)
         if not size:

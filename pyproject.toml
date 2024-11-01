@@ -57,6 +57,7 @@ gdal = [
     "gdal~=3.0",
 ]
 dev-core = [
+    "black~=24.10",
     "flake8~=7.0",
     "flake8-pie",
     "flake8-pyi",
@@ -130,6 +131,7 @@ select = [
     "WPS",
 ]
 ignore = [
+    "E203", "E302", "E704",  # black fmt
     "W503", "W504",
     "WPS1",
     "WPS2",
@@ -173,3 +175,8 @@ split_before_dict_set_generator = false
 split_before_dot = true
 split_before_expression_after_opening_paren = true
 split_before_logical_operator = true
+
+[tool.black]
+line-length = 79
+target-version = ['py312']
+skip-string-normalization = true

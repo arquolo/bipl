@@ -33,11 +33,12 @@ class Dzi(NamedTuple):
         }
         return json.dumps({'Image': image})
 
-    def tile_at(self, slide: 'Slide', level: int,
-                iy_ix: NDIndex) -> np.ndarray:
+    def tile_at(
+        self, slide: 'Slide', level: int, iy_ix: NDIndex
+    ) -> np.ndarray:
         scale = 2 ** (level - max(slide.shape[:2]).bit_length())
         tile_0 = self.tile_size / scale
-        offset_0 = *(ip * tile_0 for ip in iy_ix),
+        offset_0 = tuple(ip * tile_0 for ip in iy_ix)
         return slide.at(offset_0, self.tile_size, scale=scale)
 
     def compress(self, rgb: np.ndarray) -> bytes:

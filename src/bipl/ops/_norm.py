@@ -35,6 +35,7 @@ class Normalizer:
     To calibrate use 64um slide level.
     Defaults 64um, r=0.5 and 'ab' channels were acquired during testing.
     """
+
     def __init__(
         self,
         rgb: np.ndarray | None = None,
@@ -51,22 +52,13 @@ class Normalizer:
             self.lut = self._make_lut(cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB))
 
     def _make_lut(self, lab: np.ndarray) -> np.ndarray:
-        cdf = self._minmax_cdf(lab) if self.r == 0 else self._unsharp_cdf(lab)
+        cdf = _minmax_cdf(lab) if self.r == 0 else self._unsharp_cdf(lab)
 
         if self.weight < 1:
             cdf *= self.weight
             cdf += np.linspace(0, 1 - self.weight, 256, dtype='f4')
 
         return around(cdf * 255, 'u1')
-
-    def _minmax_cdf(self, lab: np.ndarray) -> np.ndarray:
-        lstar = lab[:, :, 0]  # (h w)
-        lo, hi = int(lstar.min()), int(lstar.max())  # Don't overflow
-        return np.r_[
-            np.zeros(lo, dtype='f4'),
-            np.linspace(0, 1, hi - lo + 1, dtype='f4'),
-            np.ones(255 - hi, 'f4'),
-        ]
 
     def _unsharp_cdf(self, lab: np.ndarray) -> np.ndarray:
         f4 = lab.astype('f4')
@@ -120,3 +112,13 @@ def _make_cdf(pdf: np.ndarray) -> np.ndarray:
     cdf -= cdf.min()
     cdf /= cdf.max()
     return cdf.filled(0)
+
+
+def _minmax_cdf(lab: np.ndarray) -> np.ndarray:
+    lstar = lab[:, :, 0]  # (h w)
+    lo, hi = int(lstar.min()), int(lstar.max())  # Don't overflow
+    return np.r_[
+        np.zeros(lo, dtype='f4'),
+        np.linspace(0, 1, hi - lo + 1, dtype='f4'),
+        np.ones(255 - hi, 'f4'),
+    ]
