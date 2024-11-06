@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 from glow import chunked, map_n, starmap_n
 
-from bipl._types import HasParts, NDIndex, NumpyLike, Shape, Span, Tile, Vec
+from bipl._types import HasPartsAbc, NDIndex, NumpyLike, Shape, Span, Tile, Vec
 
 from ._tile import BlendCropper, Decimator, Reconstructor, Stripper, Zipper
 from ._util import at, get_trapz, padslice
@@ -94,7 +94,7 @@ class Mosaic:
     def iterate(self, image: NumpyLike, max_workers: int = 1) -> '_ArrayTiles':
         """Read tiles from input image"""
         # Source shape
-        shape = image.shape[:2]
+        shape = tuple(image.shape[:2])
 
         # Index
         ih, iw = ishape = tuple(
@@ -454,7 +454,7 @@ class _ArrayTiles(Tiles):
         # Though we hope that data don't use index wrapping i.e. `index % size`
         locs = self._drop_overlaps(self.locs)
         ilocs = self._ilocs(locs)
-        if isinstance(self.data, HasParts):
+        if isinstance(self.data, HasPartsAbc):
             ids = [i[0] for i in ilocs]
             boxes = [i[1:] for i in ilocs]
             patches = self.data.parts(boxes, max_workers=self.max_workers)

@@ -38,7 +38,7 @@ from bipl._env import env
 from bipl._types import Span
 
 from ._libs import load_library
-from ._slide_bases import Driver, Image, ImageLevel
+from ._slide_bases import Driver, Image, ImageLevel, PartsMixin
 from ._util import Icc, round2, unflatten
 
 OSD = load_library('libopenslide', 1, 0)
@@ -193,7 +193,7 @@ class _Image(Image):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Level(ImageLevel):
+class _Level(PartsMixin, ImageLevel):
     downsample: int
     index: int
     osd: 'Openslide'

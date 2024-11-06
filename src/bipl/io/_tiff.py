@@ -32,7 +32,7 @@ from bipl._env import env
 from bipl._types import NDIndex, Patch, Shape, Span
 
 from ._libs import load_library
-from ._slide_bases import Driver, Image, ImageLevel, ProxyLevel
+from ._slide_bases import Driver, Image, ImageLevel, PartMixin, ProxyLevel
 from ._util import (
     Icc,
     get_aperio_properties,
@@ -416,7 +416,7 @@ class _JpegDecoder:
 
 
 @dataclass(eq=False, frozen=True, kw_only=True)
-class _Level(ImageLevel, _BaseImage):
+class _Level(PartMixin, ImageLevel, _BaseImage):
     memo: mmap.mmap
     spans: _U64 = field(repr=False)
     tile_shape: Shape
@@ -458,15 +458,16 @@ class _Level(ImageLevel, _BaseImage):
         )
         return (src * ds, lv)
 
-    def __eq__(self, rhs) -> bool:
+    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return (
             type(self) is type(rhs)
             and self.memo is rhs.memo
             and self.shape == rhs.shape
+            and self.decimations == rhs.decimations
         )
 
-    def __hash__(self) -> int:
-        return hash(self.memo) ^ hash(self.shape)
+    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
+        return hash(self.memo) ^ hash(self.shape) ^ hash(self.decimations)
 
     @shared_call  # Thread safety
     def tile(self, *idx: int) -> _U8 | None:
@@ -496,12 +497,8 @@ class _Level(ImageLevel, _BaseImage):
         elif self.decimations >= 2:
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
-        self.cache[key] = im  # type: ignore
+        self.cache[key] = im
         return self._postprocess(im)
-
-    def part(self, *loc: Span) -> _U8:
-        [(_, p)] = self.parts([loc])
-        return p
 
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
@@ -554,6 +551,7 @@ class _Level(ImageLevel, _BaseImage):
             nbytes = self.spans[iyx] @ [-1, 1]
             (ids, nulls)[nbytes == 0].append(iyx)
 
+        prev_tiles: Iterator[tuple[NDIndex, np.ndarray | None]]
         if self.prev is not None:
             prev_parts = self.prev.parts(
                 [

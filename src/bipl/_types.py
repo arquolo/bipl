@@ -1,5 +1,5 @@
 __all__ = [
-    'HasParts',
+    'HasPartsAbc',
     'NDIndex',
     'NumpyLike',
     'Patch',
@@ -9,11 +9,11 @@ __all__ = [
     'Vec',
 ]
 
+from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from typing import NamedTuple, Protocol
 
 import numpy as np
-from glow import map_n
 
 type NDIndex = tuple[int, ...]  # Index vector
 type Shape = tuple[int, ...]  # N-dim shape
@@ -45,16 +45,8 @@ class Patch(NamedTuple):
     data: np.ndarray
 
 
-class HasParts:
-    def part(self, *loc: Span) -> np.ndarray:
-        """Reads crop of LOD. Overridable"""
-        raise NotImplementedError
-
+class HasPartsAbc(ABC):
+    @abstractmethod
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
-    ) -> Iterator[Patch]:
-        return map_n(
-            lambda loc: Patch(loc, self.part(*loc)),
-            locs,
-            max_workers=max_workers,
-        )
+    ) -> Iterator[Patch]: ...

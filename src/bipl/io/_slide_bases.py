@@ -1,6 +1,7 @@
-__all__ = ['Driver', 'Image', 'ImageLevel']
+__all__ = ['Driver', 'Image', 'ImageLevel', 'PartMixin', 'PartsMixin']
 
 import re
+from abc import abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import starmap
@@ -9,11 +10,11 @@ from typing import TYPE_CHECKING, Self, final
 
 import cv2
 import numpy as np
-from glow import aceil, afloor
+from glow import aceil, afloor, map_n
 
 from bipl import env
-from bipl._types import HasParts, Patch, Shape, Span, Tile
-from bipl.ops import get_fusion, normalize_loc, rescale_crop, resize
+from bipl._types import HasPartsAbc, Patch, Shape, Span, Tile
+from bipl.ops import get_fusion, normalize_loc, resize
 
 from ._util import round2
 
@@ -58,8 +59,32 @@ class Image:
         return None
 
 
+class PartMixin(HasPartsAbc):
+    @final
+    def part(self, *loc: Span) -> np.ndarray:
+        [(_, a)] = self.parts([loc])
+        return a
+
+
+class PartsMixin(HasPartsAbc):
+    @abstractmethod
+    def part(self, *loc: Span) -> np.ndarray:
+        """Reads crop of LOD. Overridable"""
+        raise NotImplementedError
+
+    @final
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
+        return map_n(
+            lambda loc: Patch(loc, self.part(*loc)),
+            locs,
+            max_workers=max_workers,
+        )
+
+
 @dataclass(frozen=True)
-class ImageLevel(Image, HasParts):
+class ImageLevel(Image, HasPartsAbc):
     @final
     @property
     def key(self) -> None:
@@ -69,7 +94,8 @@ class ImageLevel(Image, HasParts):
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve sub-image as array from set location"""
         y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
-        return self.part(y_loc, x_loc)[:, :, c_lo:c_hi]
+        [(_, a)] = self.parts([(y_loc, x_loc)])
+        return a[:, :, c_lo:c_hi]
 
     @final
     def numpy(self) -> np.ndarray:
@@ -84,14 +110,16 @@ class ImageLevel(Image, HasParts):
         if scale == 1:
             return self
 
-        if isinstance(self, ProxyLevel):
+        post = self.post
+        if isinstance(self, ProxyLevel):  # Unwrap if already present
             scale = self.scale * scale
             base = self.base
-            if prev := getattr(base, 'prev', None):
-                base = replace(base, prev=replace(prev, post=self.post))
-            base = replace(base, post=self.post)
         else:
+            # Discard `post`
             base = self
+            if prev := getattr(base, 'prev', None):
+                base = replace(base, prev=replace(prev, post=[]))
+            base = replace(base, post=[])
 
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
@@ -110,26 +138,17 @@ class ImageLevel(Image, HasParts):
             )
 
             scale *= downsample
-            if prev := getattr(base, 'prev', None):
-                base = replace(base, prev=replace(prev, post=[]))
             base = TiledProxyLevel(
-                (bh, bw, bc),
-                post=base.post,
-                base=replace(base, post=[]),
-                downsample=downsample,
-                r_tile=r_tile,
+                (bh, bw, bc), base=base, downsample=downsample, r_tile=r_tile
             )
 
-        if scale == 1 or base.shape == (h, w, c):
-            return base
+        if scale != 1 and base.shape != (h, w, c):
+            return ProxyLevel((h, w, c), post=post, scale=scale, base=base)
+
+        # Inject `post` back
         if prev := getattr(base, 'prev', None):
-            base = replace(base, prev=replace(prev, post=[]))
-        return ProxyLevel(
-            (h, w, c),
-            post=base.post,
-            scale=scale,
-            base=replace(base, post=[]),
-        )
+            base = replace(base, prev=replace(prev, post=post))
+        return replace(base, post=post)
 
     def decimate(self, dst: float, src: int = 1) -> tuple[int, 'ImageLevel']:
         return (src, self)
@@ -170,15 +189,13 @@ class ImageLevel(Image, HasParts):
 
 
 @dataclass(frozen=True, kw_only=True)
-class ProxyLevel(ImageLevel):
+class ProxyLevel(PartMixin, ImageLevel):
     scale: float
     base: ImageLevel
 
-    def part(self, *loc: Span) -> np.ndarray:
-        im = rescale_crop(
-            self.base, *loc, scale=1 / self.scale, interpolation=1
-        )
-        return self._postprocess(im)
+    @property
+    def interpolation(self) -> int:
+        return cv2.INTER_LINEAR
 
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
@@ -210,7 +227,7 @@ class ProxyLevel(ImageLevel):
         i2o = dict(zip(i_locs_lst, zip(o_locs_lst, sizes.tolist(), mats)))
 
         kwargs = {
-            'flags': cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+            'flags': self.interpolation | cv2.WARP_INVERSE_MAP,
             'borderMode': cv2.BORDER_CONSTANT,
         }
 
@@ -227,7 +244,7 @@ class ProxyLevel(ImageLevel):
 
 
 @dataclass(frozen=True, kw_only=True)
-class TiledProxyLevel(ImageLevel):
+class TiledProxyLevel(PartsMixin, ImageLevel):
     base: ImageLevel
     downsample: int
     r_tile: int
@@ -244,7 +261,8 @@ class TiledProxyLevel(ImageLevel):
             s_loc = tuple(
                 (lo * self.downsample, hi * self.downsample) for lo, hi in loc
             )
-            return resize(self.base.part(*s_loc), r_shape[:2])
+            r = resize(self.base.part(*s_loc), r_shape[:2])
+            return self._postprocess(r)
 
         r_tile = self.r_tile
         s_tile = r_tile * self.downsample

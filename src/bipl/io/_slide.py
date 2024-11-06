@@ -14,10 +14,10 @@ import numpy as np
 from glow import memoize, shared_call, weak_memoize
 
 from bipl import env
-from bipl._types import HasParts, Patch, Shape, Span, Vec
+from bipl._types import Patch, Shape, Span, Vec
 from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
-from ._slide_bases import Driver, Image, ImageLevel
+from ._slide_bases import Driver, Image, ImageLevel, PartMixin
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -97,7 +97,7 @@ def _cached_open(path: str) -> 'Slide':
 
 @final
 @dataclass(frozen=True)
-class Slide(HasParts):
+class Slide(PartMixin):
     """Usage:
     ```
     slide = Slide.open('test.svs')
@@ -251,12 +251,8 @@ class Slide(HasParts):
 
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve image patch from maximum resolution"""
-        y_loc, x_loc, c_loc = normalize_loc(key, self.shape)
-        r = self.levels[0].part(y_loc, x_loc)
-        return r[:, :, c_loc]
-
-    def part(self, *loc: Span) -> np.ndarray:
-        return self.levels[0].part(*loc)
+        y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
+        return self.part(y_loc, x_loc)[:, :, c_lo:c_hi]
 
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0

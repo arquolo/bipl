@@ -62,7 +62,7 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
 
 def normalize_loc(
     loc: Sequence[slice] | slice, shape: Sequence[int]
-) -> list[Span]:
+) -> tuple[Span, ...]:
     """Ensures slices match ndim and have noo `None` endpoints"""
     if isinstance(loc, slice):
         loc = (loc,)
@@ -75,19 +75,19 @@ def normalize_loc(
     return _pad_loc(loc_, shape)
 
 
-def _pad_loc(loc: Sequence[Span], shape: Sequence[int]) -> list[Span]:
+def _pad_loc(loc: Sequence[Span], shape: Sequence[int]) -> tuple[Span, ...]:
     n = len(loc)
     ndim = len(shape)
     if n > ndim:
         raise ValueError(f'loc is too deep for {ndim}D, got: {loc}')
-    return [*loc, *((0, s) for s in shape[n:])]
+    return *loc, *((0, s) for s in shape[n:])
 
 
 def padslice(a: NumpyLike, *loc: Span) -> np.ndarray:
     """
     Do `a[loc]`, but extend `a` (with 0s) if `loc` indices beyond `a.shape`.
     """
-    loc = (*_pad_loc(loc, a.shape),)
+    loc = _pad_loc(loc, a.shape)
     r_shape = [hi - lo for lo, hi in loc]
 
     # Nothing to pad
@@ -104,7 +104,7 @@ def padslice(a: NumpyLike, *loc: Span) -> np.ndarray:
     )
 
     r = np.empty(r_shape, a.dtype)
-    pad = ()
+    pad: tuple[slice, ...] = ()
     for o in rloc:
         r[*pad, : o.start] = 0
         r[*pad, o.stop :] = 0

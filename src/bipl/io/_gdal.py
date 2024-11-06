@@ -11,7 +11,7 @@ from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
 from bipl._types import Span
 
-from ._slide_bases import Driver, ImageLevel
+from ._slide_bases import Driver, ImageLevel, PartsMixin
 from ._util import gdal_parse_mpp
 
 gdal.SetConfigOption('AWS_VIRTUAL_HOSTING', 'FALSE')
@@ -47,7 +47,7 @@ def _fix_if_url(s: str, /) -> str:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Level(ImageLevel):
+class _Level(PartsMixin, ImageLevel):
     g: 'Gdal'
     bands: tuple[gdal.Band, ...]
 
