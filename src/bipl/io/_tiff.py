@@ -882,12 +882,15 @@ class Tiff(Driver):
             assert isinstance(lv, _Level)
             empty = lv.spans[..., 0] == lv.spans[..., 1]
 
-            if empty.any():
-                # * Do not process bad SVSs at all
-                raise ValueError('Found 0s in tile size table')
-
             if i == 0:
+                if empty.any():
+                    raise ValueError('Found 0s in tile size table')
                 continue
+
+            if empty.any():  # Cut tile grid right after first empty tile
+                first_empty = empty.argmax()
+                lv.spans.reshape(-1, 2)[first_empty:] = 0
+
             prev = levels[0]
             prev_ds, prev = prev.decimate(ds, 1)
 
