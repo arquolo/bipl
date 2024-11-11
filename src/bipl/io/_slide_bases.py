@@ -5,7 +5,6 @@ from abc import abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import starmap
-from math import ceil
 from typing import TYPE_CHECKING, Self, final
 
 import cv2
@@ -244,45 +243,81 @@ class ProxyLevel(PartMixin, ImageLevel):
 
 
 @dataclass(frozen=True, kw_only=True)
-class TiledProxyLevel(PartsMixin, ImageLevel):
+class TiledProxyLevel(PartMixin, ImageLevel):
     base: ImageLevel
     downsample: int
     r_tile: int
 
-    def part(self, *loc: Span) -> np.ndarray:
-        s_start = [lo * self.downsample for lo, _ in loc]
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
+        # TODO: make `resize` & `postprocess` parallel
+        for loc, a in zip(locs, self._parts(locs, max_workers)):
+            yield Patch(loc, self._postprocess(a))
 
-        r_shape = tuple(hi - lo for lo, hi in loc)
-        s_shape = tuple(size * self.downsample for size in r_shape)
-        if not all(s_shape):
-            return np.empty((*r_shape, self.base.shape[2]), self.dtype)
+    def _parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[np.ndarray]:
+        locs_a = np.asarray(locs, 'i4')  # (n yx lo/hi)
+        s_locs = locs_a * self.downsample  # (n yx lo/hi)
+        r_shapes = locs_a @ [-1, 1]  # (n yx)
+        _, _, c = self.shape
 
-        if np.prod(s_shape) < env.BIPL_TILE_POOL_SIZE:
-            s_loc = tuple(
-                (lo * self.downsample, hi * self.downsample) for lo, hi in loc
-            )
-            r = resize(self.base.part(*s_loc), r_shape[:2])
-            return self._postprocess(r)
+        if not env.BIPL_TILED_POOLING:
+            # Iterate over base, then resize
+            pit = self.base.parts(s_locs.tolist(), max_workers)
+            for p, r_shape in zip(pit, r_shapes.tolist()):
+                # NOTE: resize is not concurrent
+                yield resize(p.data, r_shape)
+            return
 
         r_tile = self.r_tile
         s_tile = r_tile * self.downsample
 
-        ty, tx = (ceil(size / s_tile) for size in s_shape)
-        tgrid = np.mgrid[:ty, :tx].reshape(2, -1).T
+        loc_ids: list[int] = []
+        tgrids: list[np.ndarray] = []
+        base_locs: list[tuple[Span, ...]] = []
+        for i, s_loc in enumerate(s_locs):  # (yx lo/hi)
+            ty, tx = (s_loc @ [-1, 1] + s_tile - 1) // s_tile
+            tgrid = np.mgrid[:ty, :tx].reshape(2, -1).T  # (n yx)
 
-        t_shape = (r_tile, r_tile)
-        r_tiles = map(
-            Tile,
-            tgrid.tolist(),
-            (tgrid * r_tile).tolist(),
-            (
-                resize(self.base[sy : sy + s_tile, sx : sx + s_tile], t_shape)
-                for sy, sx in (tgrid * s_tile + s_start).tolist()
-            ),
-        )
-        image = get_fusion(r_tiles, r_shape)
-        assert image is not None
-        return self._postprocess(image)
+            # (n yx lo/hi)
+            st_locs = (
+                (tgrid * s_tile + s_loc[..., 0])[..., None] + [0, s_tile]
+            ).clip(
+                *s_loc[None].T  # (yx lo/hi) -> lo(yx 1), hi(yx 1)
+            )
+            base_locs.extend(st_locs.tolist())
+            loc_ids.extend(i for _ in tgrid)
+            tgrids.append(tgrid)
+
+        bufs: dict[int, list[np.ndarray]] = {i: [] for i, _ in enumerate(locs)}
+
+        def build_part(i: int, buf: list[np.ndarray]) -> np.ndarray:
+            r_shape = r_shapes[i]
+            if buf:
+                tgrid = tgrids[i]
+                it = map(Tile, tgrid.tolist(), (tgrid * r_tile).tolist(), buf)
+                # Stack tiles clipping out-of-shape regions
+                image = get_fusion(it, r_shape)
+                assert image is not None
+            else:
+                image = np.empty((*r_shape, c), self.dtype)
+            return image
+
+        # Iterate over base in tiles, resize, then stack via fusion
+        # Should be effective for large downsamples of large levels (i.e. NDPI)
+        prev = 0
+        for i, (_, a) in zip(loc_ids, self.base.parts(base_locs, max_workers)):
+            # NOTE: resize & fusion are not concurrent
+            # Update buffer & yield done items on jumps
+            bufs[i].append(resize(a, (r_tile, r_tile)))
+            while prev != i:
+                yield build_part(prev, bufs.pop(prev))
+                prev += 1
+
+        for i, buf in bufs.items():  # Finalize remaining
+            yield build_part(i, buf)
 
 
 class Driver:
