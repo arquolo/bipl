@@ -7,26 +7,30 @@ Driver based on libtiff
 
 __all__ = ['Tiff']
 
+import atexit
 import mmap
 import sys
 import warnings
 import weakref
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
-from ctypes import POINTER, addressof, c_ubyte, c_void_p
+from contextlib import ExitStack, contextmanager
+from ctypes import POINTER, c_ubyte, c_void_p
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
+from io import BytesIO
 from itertools import chain, product
 from math import gcd
 from threading import Lock
-from typing import Any, Self
+from typing import Any, BinaryIO, Protocol, Self
 
 import cv2
+import httpx
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import shared_call, si_bin, starmap_n
+from glow import memoize, shared_call, si_bin, starmap_n
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from bipl._env import env
 from bipl._types import NDIndex, Patch, Shape, Span
@@ -417,7 +421,7 @@ class _JpegDecoder:
 
 @dataclass(eq=False, frozen=True, kw_only=True)
 class _Level(PartMixin, ImageLevel, _BaseImage):
-    memo: mmap.mmap
+    memo: 'Sliceable[bytes]'
     spans: _U64 = field(repr=False)
     tile_shape: Shape
     decode: Callable[[bytes], _U8]
@@ -678,23 +682,33 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
 
 class Tiff(Driver):
     def __init__(self, path: str) -> None:
-        # Open TIFF in read-only (`r`) mode and disable memory mapping (`m`)
-        self._ptr = (
-            TIFF.TIFFOpenW(path, b'rm')
-            if sys.platform == 'win32'
-            else TIFF.TIFFOpen(path.encode(), b'rm')
-        )
-        if not self._ptr:
-            raise ValueError('libtiff failed to open file')
+        self._memo: Sliceable[bytes]
+        self._path = path
 
-        weakref.finalize(self, TIFF.TIFFClose, self._ptr)
+        try:
+            TypeAdapter(HttpUrl).validate_python(path)
+
+        except ValidationError:  # Got local filename
+            # `r` - open TIFF in read-only mode, `m` - disable memory mapping
+            self._ptr = (
+                TIFF.TIFFOpenW(path, b'rm')
+                if sys.platform == 'win32'
+                else TIFF.TIFFOpen(path.encode(), b'rm')
+            )
+            if not self._ptr:
+                raise ValueError('libtiff failed to open file') from None
+            weakref.finalize(self, TIFF.TIFFClose, self._ptr)
+
+            with open(path, 'rb') as f:
+                self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+        else:  # Got URL
+            self._ptr = None
+            self._memo = _RemoteFile(path)
+
         self._dir = 0
         self._lock = Lock()
         self.cache = _CacheZYXC()
-
-        with open(path, 'rb') as f:
-            self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
         self._ifds = list(self._iter_ifds())
 
         # Directory 0 is main
@@ -706,10 +720,10 @@ class Tiff(Driver):
         f = self._memo
         magic = f[:8]
 
-        if magic[:4] in {b'II*\0', b'MM\0*'}:
+        if magic[:4] in {b'II*\0', b'MM\0*'}:  # TIFF
             usize = 4
             t_head = np.dtype('u2')
-        elif magic in {b'II+\0\x08\0\0\0', b'MM\0+\0\x08\0\0'}:
+        elif magic in {b'II+\0\x08\0\0\0', b'MM\0+\0\x08\0\0'}:  # BigTIFF
             usize = 8
             t_head = np.dtype('u8')
         else:
@@ -752,7 +766,7 @@ class Tiff(Driver):
 
     def _parse_ifd(
         self,
-        f: mmap.mmap,
+        f: 'Sliceable[bytes]',
         ts: np.ndarray,
         o_dt: np.dtype,
         dtypes: Mapping[int, np.dtype],
@@ -809,13 +823,14 @@ class Tiff(Driver):
         return _Tags(tags)
 
     def __repr__(self) -> str:
-        return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
+        return f'{type(self).__name__}({self._path})'
 
     def get_mpp(self) -> float | None:
         return self.mpp
 
     @contextmanager
     def ifd(self, index: int) -> Iterator:
+        assert self._ptr is not None
         with self._lock:
             if self._dir != index:
                 self._dir = index
@@ -948,6 +963,108 @@ class _CacheZYXC:
             if self.used <= max_size:
                 self.buf[key] = (size, obj)
                 self.used += size
+
+
+class Sliceable[T](Protocol):
+    def __getitem__(self, key: slice, /) -> T: ...
+
+
+_BLOCK_SIZE = 16_384  # 16 kB
+_MAX_BLOCKS = 1000  # 16 MB cache
+
+_STACK = ExitStack()
+_CLIENT = _STACK.enter_context(
+    httpx.Client(http1=False, http2=True, follow_redirects=True)
+)
+atexit.register(_STACK.close)
+
+
+class _RemoteFile:
+    __slots__ = ('_cached', 'url')
+
+    def __init__(self, url: str | HttpUrl) -> None:
+        self.url = httpx.URL(str(url))
+
+        # Ensure range ok
+        r = _CLIENT.head(self.url, headers={'Accept': '*/*'})
+        r.raise_for_status()
+        if r.headers.get('Accept-Ranges') != 'bytes':
+            raise ValueError(f'Remote "{url}" does not support Range header')
+
+        self._cached = memoize(
+            capacity=_MAX_BLOCKS, bytesize=False, batched=True
+        )(self._get_many)
+
+    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
+        return hash(self.url)
+
+    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
+        return type(self) is type(rhs) and self.url == rhs.url
+
+    def __getitem__(self, key: slice, /) -> bytes:
+        start, stop = key.start or 0, key.stop
+        assert stop is not None
+
+        lo = start // _BLOCK_SIZE
+        hi = (stop + _BLOCK_SIZE - 1) // _BLOCK_SIZE
+
+        s = BytesIO()
+        for blk in self._cached([(o, o + 1) for o in range(lo, hi)]):
+            s.write(blk)
+
+        s.seek(start - lo * _BLOCK_SIZE)
+        return s.read(stop - start)
+
+    def _get_many(self, spans: list[Span]) -> list[bytes]:
+        # Combine spans with common border
+        pos, spans = _merge_intervals(spans)
+
+        # Get long chunks
+        fp = BytesIO()
+        for start, stop in spans:
+            self._update(fp, start, stop)
+
+        # Split back to blocks and order
+        fp.seek(0)
+        rs = [b''] * len(pos)
+        for i in pos:
+            rs[i] = fp.read(_BLOCK_SIZE)
+        return rs
+
+    def _update(self, fp: BinaryIO, start: int, stop: int) -> None:
+        start *= _BLOCK_SIZE
+        stop *= _BLOCK_SIZE
+
+        with _CLIENT.stream(
+            'GET', self.url, headers={'Range': f'bytes={start}-{stop - 1}'}
+        ) as r:
+            r.raise_for_status()
+            if r.status_code != 206:
+                raise ValueError(
+                    f'Unexpected status: {r.status_code} for {self.url}'
+                )
+            for blk in r.iter_bytes():
+                fp.write(blk)
+
+
+def _merge_intervals(spans: list[Span]) -> tuple[list[int], list[Span]]:
+    n = len(spans)
+    if n == 1:
+        return [*range(n)], spans
+
+    # Ascening order of span.start
+    spans_a = np.asarray(spans)
+    pos = spans_a[:, 0].argsort()  # (n)
+    spans_a = spans_a[pos]  # (n 2)
+
+    # "Merge intervals" algorithm for non-overlapping intervals
+    # See https://stackoverflow.com/a/58976449/9868257
+    edges = spans_a[:-1, 1] < spans_a[1:, 0]  # (n-1)
+    edges = np.r_[True, edges, True]  # (n+1)
+    mask = np.ndarray((n, 2), '?', buffer=edges, strides=edges.strides * 2)
+    spans_a = spans_a[mask].reshape(-1, 2)
+
+    return pos.tolist(), spans_a.tolist()
 
 
 _DTYPES: dict[int, np.dtype] = {
