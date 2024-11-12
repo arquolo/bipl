@@ -192,16 +192,19 @@ class _Tag(Enum):
     # = 65458  # 0?
 
 
-class _Tags:
-    def __init__(self, ifd: Mapping[_Tag, Any]) -> None:
-        # ! used only to check
-        self.planarity: _Planarity = ifd.get(_Tag.PLANAR, _Planarity.CONTIG)
+class _ImageFileDirectory(dict[_Tag, Any]):
+    def __init__(self, tags: Mapping[_Tag, Any], index: int) -> None:
+        super().__init__(tags)
+        self.index = index
 
+        if (
+            self.get(_Tag.NDPI_VERSION) == 1
+            or self.get(_Tag.MAKE) == 'Hamamatsu'
+        ):
+            raise ValueError('TIFF: Hamamatsu is not yet supported')
         # ! unused
-        self.is_hamamatsu = ifd.get(_Tag.NDPI_VERSION) == 1
-        self.bps = ifd.get(_Tag.SAMPLE_FORMAT, 1)
+        self.bps = self.get(_Tag.SAMPLE_FORMAT, 1)
 
-        self.color = ifd[_Tag.COLORSPACE]
         self.subsampling = (1, 1)
 
         # TODO: use this in YCbCr conversion
@@ -209,9 +212,9 @@ class _Tags:
         self.yuv_centered = True
         self.yuv_bw = np.array([], 'f4')  # BW pairs, per channel
 
-        if self.color is _ColorSpace.YCBCR:
+        if self[_Tag.COLORSPACE] is _ColorSpace.YCBCR:
             self.gray = np.array([0.299, 0.587, 0.114], 'f4')
-            self.gray = ifd.get(_Tag.YUV_COEFFICIENTS, self.gray)
+            self.gray = self.get(_Tag.YUV_COEFFICIENTS, self.gray)
 
             # YCbCr subsampling H/W, i.e:
             # 24bps:
@@ -224,28 +227,26 @@ class _Tags:
             #  (2 2) = 4:2:0 (c_c_/____), 50% H, 50% W - a.k.a. YUV-NV12
             # 10bps:
             #  (2 4) = 4:1:0 (c___/____), 50% H, 25% W
-            ss_w, ss_h = ifd.get(_Tag.YUV_SUBSAMPLING, (2, 2))
+            ss_w, ss_h = self.get(_Tag.YUV_SUBSAMPLING, (2, 2))
             self.subsampling = ss_h, ss_w
 
-            self.yuv_centered = ifd.get(_Tag.YUV_POSITIONING) != 2
-            self.yuv_bw = ifd.get(_Tag.REF_BLACK_WHITE, self.yuv_bw)
-
-        self.ifd = ifd
+            self.yuv_centered = self.get(_Tag.YUV_POSITIONING) != 2
+            self.yuv_bw = self.get(_Tag.REF_BLACK_WHITE, self.yuv_bw)
 
     @property
     def image_shape(self) -> Shape:
         return (
-            self.ifd[_Tag.IMAGE_HEIGHT],
-            self.ifd[_Tag.IMAGE_WIDTH],
-            self.ifd[_Tag.SAMPLES_PER_PIXEL],
+            self[_Tag.IMAGE_HEIGHT],
+            self[_Tag.IMAGE_WIDTH],
+            self[_Tag.SAMPLES_PER_PIXEL],
         )
 
     @property
     def tile_shape(self) -> Shape | None:
         tile = (
-            self.ifd.get(_Tag.TILE_HEIGHT, 0),
-            self.ifd.get(_Tag.TILE_WIDTH, 0),
-            self.ifd[_Tag.SAMPLES_PER_PIXEL],
+            self.get(_Tag.TILE_HEIGHT, 0),
+            self.get(_Tag.TILE_WIDTH, 0),
+            self[_Tag.SAMPLES_PER_PIXEL],
         )
         if not all(tile):  # Missing tile height/width tag
             return None
@@ -257,15 +258,15 @@ class _Tags:
             len(range(0, s, t)) for s, t in zip(shape, tile_shape)
         )
 
-        tbs: _U64 = np.reshape(self.ifd[_Tag.TILE_OFFSETS], grid_shape)
-        tbc: _U64 = np.reshape(self.ifd[_Tag.TILE_NBYTES], grid_shape)
+        tbs: _U64 = np.reshape(self[_Tag.TILE_OFFSETS], grid_shape)
+        tbc: _U64 = np.reshape(self[_Tag.TILE_NBYTES], grid_shape)
         return np.stack((tbs, tbs + tbc), -1)
 
     def get_decoder(self) -> Callable[[bytes], _U8]:
-        match self.ifd[_Tag.COMPRESSION]:
+        match self[_Tag.COMPRESSION]:
             case _Compression.JPEG:
-                jpt: bytes | None = self.ifd.get(_Tag.JPEG_TABLES)
-                return _JpegDecoder(jpt, self.color.name)
+                jpt: bytes | None = self.get(_Tag.JPEG_TABLES)
+                return _JpegDecoder(jpt, self[_Tag.COLORSPACE].name)
 
             case _Compression.JPEG2000_RGB | _Compression.JPEG2000_YUV:
                 return imagecodecs.jpeg2k_decode
@@ -277,34 +278,25 @@ class _Tags:
         if c := meta.get('ScanWhitePoint'):
             return np.array(int(c), 'u1')
 
-        bg_hex: bytes = self.ifd.get(_Tag.BACKGROUND_COLOR, b'FFFFFF')
+        bg_hex: bytes = self.get(_Tag.BACKGROUND_COLOR, b'FFFFFF')
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
-    def vendor_props(
-        self,
-        vendor: str,
-        index: int = 0,
-        description: str | None = None,
-    ) -> tuple[str, dict[str, str]] | None:
-        if description is None:
-            description = self.ifd.get(_Tag.DESCRIPTION, '')
-            assert isinstance(description, str)
+    def vendor_props(self, vendor: str) -> tuple[str, dict[str, str]] | None:
+        description = self.get(_Tag.DESCRIPTION, '')
+        xmp = self.get(_Tag.XMP)
+        assert isinstance(description, str)
 
         match vendor:
             case 'ventana':  # BIF of Roche
-                if (xmp := self.ifd.get(_Tag.XMP)) is not None and (
-                    meta := get_ventana_properties(xmp, index)
+                if xmp is not None and (
+                    meta := get_ventana_properties(xmp, self.index)
                 ):
                     return description, meta
-                if index != 0:
+                if self.index != 0:
                     return description, {}
 
             case 'aperio':  # SVS
-                return get_aperio_properties(description, index)
-
-            case 'hamamatsu':  # NDPI
-                if self.ifd.get(_Tag.MAKE) == 'Hamamatsu':
-                    raise ValueError('TIFF: Hamamatsu is not yet supported')
+                return get_aperio_properties(description, self.index)
 
             case 'generic':  # TIFF
                 try:
@@ -316,30 +308,20 @@ class _Tags:
 
         return None
 
-    def vendor_properties(self) -> tuple[str, str, dict[str, str]]:
-        description: str = self.ifd.get(_Tag.DESCRIPTION, '')
-
-        for vendor in ('ventana', 'aperio', 'hamamatsu', 'generic'):
-            if r := self.vendor_props(vendor, 0, description):
-                header, meta = r
-                return vendor, header, meta
-
-        raise ValueError('Unknown vendor')
-
     def _get_mpp(self, vendor: str, meta: dict) -> float | None:
         """Extract MPP, um/pixel, phisical pixel size"""
         if vendor == 'ventana':
             # Ventana messes with TIFF tag XResolution, YResolution
             return float(mpp_s) if (mpp_s := meta.get('ScanRes')) else None
 
-        res_unit_kind = self.ifd.get(_Tag.RES_UNIT)
+        res_unit_kind = self.get(_Tag.RES_UNIT)
         if res_unit_kind and (
             res_unit := _RESOLUTION_UNITS.get(res_unit_kind)
         ):
             mpp_xy = [
                 res_unit / ppu
                 for t in (_Tag.RES_Y, _Tag.RES_X)
-                if (ppu := self.ifd.get(t))
+                if (ppu := self.get(t))
             ]
             if mpp_xy and (mpp := float(np.mean(mpp_xy))):
                 return mpp
@@ -349,8 +331,14 @@ class _Tags:
         return None
 
     def properties(self) -> tuple[str, str, dict[str, str], float | None, _U8]:
-        """Extracts: (vendor, header, metadata, mpp)"""
-        vendor, header, meta = self.vendor_properties()
+        """Extracts: (vendor, header, metadata, mpp, bg color)"""
+        for vendor in ('ventana', 'aperio', 'generic'):
+            if r := self.vendor_props(vendor):
+                header, meta = r
+                break
+        else:
+            raise ValueError('Unknown vendor')
+
         mpp = self._get_mpp(vendor, meta)
         bg_color = self._bg_color(meta)
         return vendor, header, meta, mpp, bg_color
@@ -716,7 +704,7 @@ class Tiff(Driver):
             self._ifds[0].properties()
         )
 
-    def _iter_ifds(self) -> Iterator[_Tags]:
+    def _iter_ifds(self) -> Iterator[_ImageFileDirectory]:
         f = self._memo
         magic = f[:8]
 
@@ -746,6 +734,7 @@ class Tiff(Driver):
             dtypes = {i: dt.newbyteorder() for i, dt in dtypes.items()}
 
         pos = np.frombuffer(f[usize : usize * 2], o_dt).item()
+        idx = 0
         while pos:
             # Read IFD header
             num_tags = np.frombuffer(
@@ -759,18 +748,20 @@ class Tiff(Driver):
             )
             pos += t_body.itemsize * num_tags
 
-            yield self._parse_ifd(f, ts, o_dt=o_dt, dtypes=dtypes)
+            yield self._parse_ifd(f, idx, ts, o_dt=o_dt, dtypes=dtypes)
 
             # Jump to next IFD
             pos = np.frombuffer(f[pos : pos + usize], o_dt).item()
+            idx += 1
 
     def _parse_ifd(
         self,
         f: 'Sliceable[bytes]',
+        index: int,
         ts: np.ndarray,
         o_dt: np.dtype,
         dtypes: Mapping[int, np.dtype],
-    ) -> _Tags:
+    ) -> _ImageFileDirectory:
 
         m = np.isin(ts['tag'], _TAG_NAMES_A) & np.isin(ts['type'], _DTYPES_A)
         if (unknown := ts[~m][['tag', 'type']]).size:
@@ -820,7 +811,7 @@ class Tiff(Driver):
             if (v := tags.get(k)) is not None:
                 tags[k] = t(v)
 
-        return _Tags(tags)
+        return _ImageFileDirectory(tags, index)
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({self._path})'
@@ -844,41 +835,41 @@ class Tiff(Driver):
         return n
 
     def __getitem__(self, index: int) -> Image | None:
-        tags = self._ifds[index]
+        ifd = self._ifds[index]
         if index == 0:
             head = self._head
         else:
-            r = tags.vendor_props(self.vendor, index)
+            r = ifd.vendor_props(self.vendor)
             if not r:
                 raise ValueError('File directories are from different vendors')
             head, _ = r
 
-        if tags.color is _ColorSpace.YCBCR and tags.subsampling != (2, 2):
-            raise ValueError(
-                f'Unsupported YUV subsampling: {tags.subsampling}'
-            )
+        if ifd[_Tag.COLORSPACE] is _ColorSpace.YCBCR and (
+            ifd.subsampling != (2, 2)
+        ):
+            raise ValueError(f'Unsupported YUV subsampling: {ifd.subsampling}')
 
-        shape = tags.image_shape
-        tile_shape = tags.tile_shape
+        shape = ifd.image_shape
+        tile_shape = ifd.tile_shape
 
         if tile_shape is None:  # Not tiled
             return _Image(
                 shape,
-                icc_impl=tags.ifd.get(_Tag.ICC_PROFILE),
+                icc_impl=ifd.get(_Tag.ICC_PROFILE),
                 tiff=self,
                 head=head,
                 index=index,
             )
 
-        spans = tags.tile_spans(shape, tile_shape)
+        spans = ifd.tile_spans(shape, tile_shape)
 
         return _Level(
             shape,
-            icc_impl=tags.ifd.get(_Tag.ICC_PROFILE),
+            icc_impl=ifd.get(_Tag.ICC_PROFILE),
             memo=self._memo,
             spans=spans,
             tile_shape=tile_shape,
-            decode=tags.get_decoder(),
+            decode=ifd.get_decoder(),
             cache=self.cache,
             fill=self._bg_color,
         )
