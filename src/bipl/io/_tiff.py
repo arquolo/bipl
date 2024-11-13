@@ -9,6 +9,7 @@ __all__ = ['Tiff']
 
 import atexit
 import mmap
+import struct
 import sys
 import warnings
 import weakref
@@ -154,6 +155,7 @@ class _Tag(Enum):
     TILE_HEIGHT = 323
     TILE_OFFSETS = 324
     TILE_NBYTES = 325
+    # SUBIFDS = 330  # offset to child IFDs
     SAMPLE_FORMAT = 339
     SAMPLE_MIN = 340
     SAMPLE_MAX = 341
@@ -166,6 +168,7 @@ class _Tag(Enum):
     XMP = 700
     IMAGE_DEPTH = 32997
     ICC_PROFILE = 34675
+    # NDPI stiff
     NDPI_VERSION = 65420  # 1 for any NDPI
     SOURCE_LENS = 65421  # macro = -1, map of non-empty regions = -2
     OFFSET_X = 65422
@@ -203,7 +206,8 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         ):
             raise ValueError('TIFF: Hamamatsu is not yet supported')
         # ! unused
-        self.bps = self.get(_Tag.SAMPLE_FORMAT, 1)
+        self.bps = self.get(_Tag.BITS_PER_SAMPLE, 1)
+        self.sample_format = self.get(_Tag.SAMPLE_FORMAT, 1)
 
         self.subsampling = (1, 1)
 
@@ -233,9 +237,7 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             self.yuv_centered = self.get(_Tag.YUV_POSITIONING) != 2
             self.yuv_bw = self.get(_Tag.REF_BLACK_WHITE, self.yuv_bw)
 
-    @property
-    def image_shape(self) -> Shape:
-        return (
+        self.image_shape = (
             self[_Tag.IMAGE_HEIGHT],
             self[_Tag.IMAGE_WIDTH],
             self[_Tag.SAMPLES_PER_PIXEL],
@@ -459,7 +461,7 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
         )
 
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash(self.memo) ^ hash(self.shape) ^ hash(self.decimations)
+        return hash((self.memo, self.shape, self.decimations))
 
     @shared_call  # Thread safety
     def tile(self, *idx: int) -> _U8 | None:
@@ -544,7 +546,7 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
             (ids, nulls)[nbytes == 0].append(iyx)
 
         prev_tiles: Iterator[tuple[NDIndex, np.ndarray | None]]
-        if self.prev is not None:
+        if self.prev is not None and nulls:
             prev_parts = self.prev.parts(
                 [
                     ((iy * th, iy * th + th), (ix * tw, ix * tw + tw))
@@ -670,7 +672,7 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
 
 class Tiff(Driver):
     def __init__(self, path: str) -> None:
-        self._memo: Sliceable[bytes]
+        self._fp: Sliceable[bytes]
         self._path = path
 
         try:
@@ -688,11 +690,11 @@ class Tiff(Driver):
             weakref.finalize(self, TIFF.TIFFClose, self._ptr)
 
             with open(path, 'rb') as f:
-                self._memo = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                self._fp = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
         else:  # Got URL
             self._ptr = None
-            self._memo = _RemoteFile(path)
+            self._fp = _RemoteFile(path)
 
         self._dir = 0
         self._lock = Lock()
@@ -705,61 +707,69 @@ class Tiff(Driver):
         )
 
     def _iter_ifds(self) -> Iterator[_ImageFileDirectory]:
-        f = self._memo
-        magic = f[:8]
+        header = self._fp[:4]
+        try:
+            byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
+        except KeyError as exc:
+            raise ValueError(f'not a TIFF file {header!r}') from exc
 
-        if magic[:4] in {b'II*\0', b'MM\0*'}:  # TIFF
+        [version] = struct.unpack(byteorder + 'H', header[2:4])
+        if version == 42:  # TIFF
             usize = 4
-            t_head = np.dtype('u2')
-        elif magic in {b'II+\0\x08\0\0\0', b'MM\0+\0\x08\0\0'}:  # BigTIFF
-            usize = 8
-            t_head = np.dtype('u8')
+            head_fmt = 'H'  # u2
+            o_fmt = 'I'  # u4
+        elif version == 43:  # BigTIFF
+            usize, zero = struct.unpack(byteorder + 'HH', self._fp[4:8])
+            if usize != 8 or zero != 0:
+                raise ValueError(
+                    f'invalid BigTIFF offset size {(usize, zero)}'
+                )
+            head_fmt = o_fmt = 'Q'  # u8
         else:
-            raise ValueError(f'Unknown magic: {magic.hex("-", 2)}')
+            raise ValueError(f'invalid TIFF version: {version}')
 
         t_body = np.dtype(
             [
-                ('tag', 'u2'),
-                ('type', 'u2'),
-                ('count', f'u{usize}'),
-                ('value', f'{usize}u1'),
+                ('tag', 'H'),
+                ('type', 'H'),
+                ('count', o_fmt),
+                ('value', f'{usize}B'),
             ]
         )
-        o_dt = np.dtype(f'u{usize}')
         dtypes = _DTYPES
-        if sys.byteorder != {b'II': 'little', b'MM': 'big'}[magic[:2]]:
-            t_head = t_head.newbyteorder()
+        if sys.byteorder != {'<': 'little', '>': 'big'}[byteorder]:
+            head_fmt = byteorder + head_fmt
+            o_fmt = byteorder + o_fmt
             t_body = t_body.newbyteorder()
-            o_dt = o_dt.newbyteorder()
             dtypes = {i: dt.newbyteorder() for i, dt in dtypes.items()}
 
-        pos = np.frombuffer(f[usize : usize * 2], o_dt).item()
+        [pos] = struct.unpack(o_fmt, self._fp[usize : usize * 2])
         idx = 0
         while pos:
             # Read IFD header
-            num_tags = np.frombuffer(
-                f[pos : pos + t_head.itemsize], t_head
-            ).item()
-            pos += t_head.itemsize
+            head_size = struct.calcsize(head_fmt)
+            [num_tags] = struct.unpack(
+                head_fmt, self._fp[pos : pos + head_size]
+            )
+            pos += head_size
 
             # Read tags
             ts = np.frombuffer(
-                f[pos : pos + t_body.itemsize * num_tags], t_body
+                self._fp[pos : pos + t_body.itemsize * num_tags], t_body
             )
             pos += t_body.itemsize * num_tags
 
-            yield self._parse_ifd(f, idx, ts, o_dt=o_dt, dtypes=dtypes)
+            yield self._parse_ifd(idx, ts, o_fmt=o_fmt, dtypes=dtypes)
 
             # Jump to next IFD
-            pos = np.frombuffer(f[pos : pos + usize], o_dt).item()
+            [pos] = struct.unpack(o_fmt, self._fp[pos : pos + usize])
             idx += 1
 
     def _parse_ifd(
         self,
-        f: 'Sliceable[bytes]',
         index: int,
         ts: np.ndarray,
-        o_dt: np.dtype,
+        o_fmt: str,
         dtypes: Mapping[int, np.dtype],
     ) -> _ImageFileDirectory:
 
@@ -774,9 +784,9 @@ class Tiff(Driver):
             dt = dtypes[type_]
             size = int(count * dt.itemsize)
 
-            if size > o_dt.itemsize:
-                o = value.view(o_dt).item()
-                v = np.frombuffer(f[o : o + size], dt.base)
+            if size > struct.calcsize(o_fmt):
+                [o] = struct.unpack(o_fmt, value)
+                v = np.frombuffer(self._fp[o : o + size], dt.base)
             else:
                 v = value[:size].view(dt.base)
 
