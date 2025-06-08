@@ -45,6 +45,10 @@ class Env(BaseSettings):
 
     BIPL_MPP_Q: int = 12  # 2^(1/Q) MPP rounding (default 1.06x step)
 
+    # Remote TIFF block size & cache size
+    BIPL_TIFF_BLOCK_SIZE: ByteSize = _bs_adapter.validate_python('16 KiB')
+    BIPL_TIFF_NUM_BLOCKS: int = 1000
+
     BIPL_COV_URL: HttpUrl | None = None
 
 

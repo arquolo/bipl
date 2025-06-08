@@ -3,6 +3,7 @@ __all__ = [
     'crop_to',
     'get_fusion',
     'get_trapz',
+    'merge_intervals',
     'normalize_loc',
     'probs_to_rgb_heatmap',
     'resize',
@@ -260,3 +261,23 @@ def rescale_crop(
 def at(a: NumpyLike, *loc: Span) -> np.ndarray:
     s = tuple(starmap(slice, loc))
     return a[s]
+
+
+def merge_intervals(spans: list[Span]) -> tuple[list[int], list[Span]]:
+    n = len(spans)
+    if n == 1:
+        return [*range(n)], spans
+
+    # Ascening order of span.start
+    spans_a = np.asarray(spans)
+    pos = spans_a[:, 0].argsort()  # (n)
+    spans_a = spans_a[pos]  # (n 2)
+
+    # "Merge intervals" algorithm for non-overlapping intervals
+    # See https://stackoverflow.com/a/58976449/9868257
+    edges = spans_a[:-1, 1] < spans_a[1:, 0]  # (n-1)
+    edges = np.r_[True, edges, True]  # (n+1)
+    mask = np.ndarray((n, 2), '?', buffer=edges, strides=edges.strides * 2)
+    spans_a = spans_a[mask].reshape(-1, 2)
+
+    return pos.tolist(), spans_a.tolist()

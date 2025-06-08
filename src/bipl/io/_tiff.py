@@ -1,42 +1,38 @@
 """
-Driver based on libtiff
+Pure python driver inspired by libtiff
 - fast
-- not thread safe (internally)
-- compatible with TIFF and its flavours
+- thread safe
+- compatible with different variants of TIFF like AperioSVS, Ventana, e.t.c.
+- not compatible with Hamamatsu NDPI
 """
 
 __all__ = ['Tiff']
 
-import atexit
-import mmap
 import struct
 import sys
 import warnings
 import weakref
+from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import ExitStack, contextmanager
-from ctypes import POINTER, c_ubyte, c_void_p
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from io import BytesIO
+from functools import partial
 from itertools import chain, product
 from math import gcd
 from threading import Lock
-from typing import Any, BinaryIO, Protocol, Self
+from typing import Any, Self, assert_never
 
 import cv2
-import httpx
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import memoize, shared_call, si_bin, starmap_n
-from pydantic import HttpUrl, TypeAdapter, ValidationError
+from glow import shared_call, si_bin, starmap_n
 
 from bipl._env import env
+from bipl._fileio import Paged, fopen
 from bipl._types import NDIndex, Patch, Shape, Span
 
-from ._libs import load_library
 from ._slide_bases import Driver, Image, ImageLevel, PartMixin, ProxyLevel
 from ._util import (
     Icc,
@@ -48,13 +44,6 @@ from ._util import (
 
 _U8 = npt.NDArray[np.uint8]
 _U64 = npt.NDArray[np.uint64]
-
-TIFF = load_library('libtiff', 6, 5)
-# _TIFF.TIFFSetErrorHandler(None)
-
-(TIFF.TIFFOpenW if sys.platform == 'win32' else TIFF.TIFFOpen).restype = (
-    POINTER(c_ubyte)
-)
 
 _RESOLUTION_UNITS = {2: 25400, 3: 10000}
 
@@ -82,31 +71,6 @@ def nv12_to_rgb(x: _U8) -> _U8:
 
     r = cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
     return np.asarray(r, 'u1')
-
-
-class _Compression(Enum):
-    RAW = 1
-    CCITT = 2
-    CCITTFAX3 = 3
-    CCITTFAX4 = 4
-    LZW = 5
-    JPEG_OLD = 6
-    JPEG = 7
-    ADOBE_DEFLATE = 8
-    RAW_16 = 32771
-    PACKBITS = 32773
-    THUNDERSCAN = 32809
-    DEFLATE = 32946
-    DCS = 32947
-    JPEG2000_YUV = 33003
-    JPEG2000_RGB = 33005
-    JBIG = 34661
-    SGILOG = 34676
-    SGILOG24 = 34677
-    JPEG2000 = 34712
-    LZMA = 34925
-    ZSTD = 50000
-    WEBP = 50001
 
 
 class _Planarity(Enum):
@@ -201,7 +165,23 @@ class _Tag(Enum):
 
 
 class _ImageFileDirectory(dict[_Tag, Any]):
-    def __init__(self, tags: Mapping[_Tag, Any], index: int) -> None:
+    def __init__(self, tags: dict[_Tag, Any], index: int) -> None:
+        # Use strong types
+        for k, t in [
+            (_Tag.COLORSPACE, _ColorSpace),
+            (_Tag.ORIENTATION, _Orientation),
+            (_Tag.PLANAR, _Planarity),
+            (
+                _Tag.DATETIME,
+                lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S'),
+            ),
+            (_Tag.PREDICTOR, _unpredictors.get),
+            (_Tag.REF_BLACK_WHITE, lambda x: x.reshape(3, 2)),
+            (_Tag.ICC_PROFILE, Icc),
+        ]:
+            if (v := tags.get(k)) is not None:
+                tags[k] = t(v)
+
         super().__init__(tags)
         self.index = index
 
@@ -247,39 +227,96 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             self[_Tag.IMAGE_WIDTH],
             self[_Tag.SAMPLES_PER_PIXEL],
         )
+        self.is_tiled, self.unit_shape, self.spans = self._tiling_schema()
 
-    @property
-    def tile_shape(self) -> Shape | None:
-        tile = (
-            self.get(_Tag.TILE_HEIGHT, 0),
-            self.get(_Tag.TILE_WIDTH, 0),
-            self[_Tag.SAMPLES_PER_PIXEL],
-        )
-        if not all(tile):  # Missing tile height/width tag
-            return None
-        return tile
+    def _tiling_schema(self) -> tuple[bool, Shape, _U64]:
+        """
+        Returns tile shape &
+        (h w d 2) tensor of start:stop of each tile w.r.t file.
+        """
+        spp = self[_Tag.SAMPLES_PER_PIXEL]
 
-    def tile_spans(self, shape: Shape, tile_shape: Shape) -> _U64:
-        """Returns (h w d 2) tensor of start:stop of each tile w.r.t file."""
+        if th := self.get(_Tag.TILE_HEIGHT, 0):  # Tiles
+            tw = self[_Tag.TILE_WIDTH]
+            offset_tag = _Tag.TILE_OFFSETS
+            byte_tag = _Tag.TILE_NBYTES
+            is_tiled = True
+
+        else:  # Strips
+            th = self[_Tag.STRIP_HEIGHT]
+            tw = self[_Tag.IMAGE_WIDTH]
+            offset_tag = _Tag.STRIP_OFFSETS
+            byte_tag = _Tag.STRIP_NBYTES
+            is_tiled = False
+
+        unit_shape = (th, tw, spp)
         grid_shape = tuple(
-            len(range(0, s, t)) for s, t in zip(shape, tile_shape)
+            len(range(0, s, t)) for s, t in zip(self.image_shape, unit_shape)
         )
+        tbs: _U64 = np.reshape(self[offset_tag], grid_shape)
+        tbc: _U64 = np.reshape(self[byte_tag], grid_shape)
 
-        tbs: _U64 = np.reshape(self[_Tag.TILE_OFFSETS], grid_shape)
-        tbc: _U64 = np.reshape(self[_Tag.TILE_NBYTES], grid_shape)
-        return np.stack((tbs, tbs + tbc), -1)
+        grid = np.stack((tbs, tbs + tbc), -1)
+
+        return is_tiled, unit_shape, grid
 
     def get_decoder(self) -> Callable[[bytes], _U8]:
-        match self[_Tag.COMPRESSION]:
-            case _Compression.JPEG:
-                jpt: bytes | None = self.get(_Tag.JPEG_TABLES)
-                return _JpegDecoder(jpt, self[_Tag.COLORSPACE].name)
+        compression = self[_Tag.COMPRESSION]
+        try:
+            decompress = _decompressors[compression]
+        except KeyError:
+            raise ValueError(
+                f'IFD: {self.index}: Unknown compression {compression}'
+            ) from None
 
-            case _Compression.JPEG2000_RGB | _Compression.JPEG2000_YUV:
-                return imagecodecs.jpeg2k_decode
+        if decompress is None:  # RAW
+            tile_size = np.prod(self.unit_shape)
+            self.spans[..., 1] = self.spans[..., 0] + tile_size
 
-            case _:
-                return imagecodecs.imread
+        if decompress in {imagecodecs.jpeg_decode, imagecodecs.jpeg8_decode}:
+            return partial(
+                decompress,
+                tables=self.get(_Tag.JPEG_TABLES),
+                colorspace=self[_Tag.COLORSPACE].name,
+                outcolorspace='RGB',
+            )
+
+        if decompress == imagecodecs.eer_decode:
+            match compression:
+                case 65001:
+                    rlebits, horzbits, vertbits = 8, 2, 2
+                case 65002:
+                    rlebits, horzbits, vertbits = 7, 2, 2
+                case 65002:
+                    rlebits = self.get(_Tag.BITS_SKIP_POS, 7)
+                    horzbits = self.get(_Tag.BITS_HORZ_SUB, 2)
+                    vertbits = self.get(_Tag.BITS_VERT_SUB, 2)
+                case _ as unreachable:
+                    assert_never(unreachable)
+
+            return partial(
+                imagecodecs.eer_decode,
+                shape=(self.unit_shape[0], self.unit_shape[1]),
+                rlebits=rlebits,
+                horzbits=horzbits,
+                vertbits=vertbits,
+                superres=False,
+            )
+
+        if decompress is _jetraw_decode:
+            return partial(_jetraw_decode, shape=self.unit_shape)
+
+        if decompress in {
+            imagecodecs.jpeg2k_decode,
+            imagecodecs.jpegxl_decode,
+            imagecodecs.jpegxr_decode,
+            imagecodecs.png_decode,
+            imagecodecs.webp_decode,
+        }:
+            return decompress
+
+        unpredict: Callable | None = self.get(_Tag.PREDICTOR)
+        return _LambdaDecoder(decompress, unpredict, self.unit_shape)
 
     def _bg_color(self, meta: dict) -> _U8:
         if c := meta.get('ScanWhitePoint'):
@@ -354,69 +391,77 @@ class _ImageFileDirectory(dict[_Tag, Any]):
 # ------------------ image, level & opener implementations -------------------
 
 
-@dataclass(frozen=True)
-class _BaseImage(Image):
-    icc_impl: Icc | None = None
-
-    @property
-    def icc(self) -> Icc | None:
-        return self.icc_impl
-
-
-@dataclass(frozen=True, kw_only=True)
-class _Image(_BaseImage):
-    tiff: 'Tiff'
-    head: str
-    index: int
-
-    @property
-    def key(self) -> str | None:
-        if self.tiff.vendor == 'aperio' and self.index == 1:
-            return 'thumbnail'
-        if self.tiff.vendor == 'ventana':
-            match self.head:
-                case 'Thumbnail':
-                    return 'thumbnail'
-                case 'Label Image' | 'Label_Image':
-                    return 'macro'
-            return None
-        for key in ('label', 'macro'):
-            if any(key in s for s in self.head.splitlines()):
-                return key
-        return None
-
-    def numpy(self) -> _U8:
-        h, w = self.shape[:2]
-        rgba = np.empty((h, w, 4), dtype='u1')
-
-        # TODO: find offset & size of such images
-        with self.tiff.ifd(self.index) as ptr:
-            ok = TIFF.TIFFReadRGBAImageOriented(
-                ptr, w, h, c_void_p(rgba.ctypes.data), 1, 0
-            )
-            if not ok:
-                raise ValueError('TIFF image read failed')
-
-        rgba = cv2.cvtColor(rgba, cv2.COLOR_mRGBA2RGBA)
-        # TODO: do we need to use bg_color to fill points where alpha = 0 ?
-        rgb = np.asarray(rgba[..., :3], 'u1')
-        return self._postprocess(rgb)
-
-
 @dataclass(frozen=True, slots=True)
-class _JpegDecoder:
-    jpt: bytes | None = field(repr=False)
-    color: str | None
+class _LambdaDecoder:
+    decompress: Callable[[bytes], bytes] | None
+    unpredict: Callable | None
+    shape: Shape
 
     def __call__(self, buf: bytes) -> _U8:
-        return imagecodecs.jpeg_decode(
-            buf, tables=self.jpt, colorspace=self.color, outcolorspace='RGB'
-        )
+        if self.decompress:
+            buf = self.decompress(buf)
+
+        h, w, c = self.shape
+        arr = np.frombuffer(buf, 'u1')
+        arr = arr[: h * w * c].reshape(-1, w, c)
+
+        if self.unpredict:
+            arr = self.unpredict(arr, axis=-2, out=arr)
+
+        if arr.shape[0] == h:
+            return arr
+        return np.pad(arr, ((0, h - arr.shape[0]), (0, 0), (0, 0)))
+
+
+def _jetraw_decode(buf: bytes, *, shape: Shape) -> _U8:
+    out = np.zeros(shape, 'u2')
+    imagecodecs.jetraw_decode(buf, out=out.ravel())
+    return out
+
+
+# For IDs see bipl.io._tiff_compressions
+_decomp_to_ids: dict[Callable | None, set[int]] = {
+    # bytes -> bytes
+    None: {1},
+    imagecodecs.deflate_decode: {8, 32946, 50013},
+    imagecodecs.lzma_decode: {34925},
+    imagecodecs.lzw_decode: {5},
+    imagecodecs.packbits_decode: {32773},
+    imagecodecs.zstd_decode: {34926, 50000},
+    # bytes -> ndarray, no predictor
+    _jetraw_decode: {48124},
+    imagecodecs.eer_decode: {65000, 65001, 65002},
+    imagecodecs.jpeg_decode: {6, 7, 33007},
+    imagecodecs.jpeg2k_decode: {33003, 33004, 33005, 34712},
+    imagecodecs.jpeg8_decode: {34892},
+    imagecodecs.jpegxl_decode: {50002, 52546},
+    imagecodecs.jpegxr_decode: {22610, 34934},
+    imagecodecs.lerc_decode: {34887},
+    imagecodecs.png_decode: {34933},
+    imagecodecs.webp_decode: {34927, 50001},
+}
+_decompressors: dict[int, Callable | None] = {}
+for _decomp, _codec_ids in _decomp_to_ids.items():
+    for _codec_id in _codec_ids:
+        assert _codec_id not in _decompressors, f'Duplicates: {_decomp_to_ids}'
+        _decompressors[_codec_id] = _decomp
+
+
+_unpredictors: dict[int, Callable] = {
+    2: imagecodecs.delta_decode,
+    3: imagecodecs.floatpred_decode,
+    34892: partial(imagecodecs.delta_decode, dist=2),
+    34893: partial(imagecodecs.delta_decode, dist=4),
+    34894: partial(imagecodecs.floatpred_decode, dist=2),
+    34895: partial(imagecodecs.floatpred_decode, dist=4),
+}
 
 
 @dataclass(eq=False, frozen=True, kw_only=True)
-class _Level(PartMixin, ImageLevel, _BaseImage):
-    memo: 'Sliceable[bytes]'
+class _BaseImage(Image):
+    icc_impl: Icc | None = None
+    buf: Paged
+    path: str
     spans: _U64 = field(repr=False)
     tile_shape: Shape
     decode: Callable[[bytes], _U8]
@@ -464,13 +509,13 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
     def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return (
             type(self) is type(rhs)
-            and self.memo is rhs.memo
+            and self.buf is rhs.buf
             and self.shape == rhs.shape
             and self.decimations == rhs.decimations
         )
 
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash((self.memo, self.shape, self.decimations))
+        return hash((self.buf, self.shape, self.decimations))
 
     @shared_call  # Thread safety
     def tile(self, *idx: int) -> _U8 | None:
@@ -491,7 +536,7 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
 
         # Cache miss
         # Read tile from disk
-        im = self.decode(self.memo[lo:hi])
+        im = self.decode(self.buf.pread(hi - lo, lo))
 
         # Resize if level is pooled
         th, tw = self.tile_shape[:2]
@@ -679,34 +724,65 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
         return replace(self, post=post, prev=prev)
 
 
+def _get_key(
+    ifd: _ImageFileDirectory, vendor: str, head: str, index: int
+) -> str | None:
+    if ifd.is_tiled:
+        return None
+
+    match (vendor, index, head):
+        case ('aperio', 1, _) | ('ventana', _, 'Thumbnail'):
+            return 'thumbnail'
+        case ('ventana', _, 'Label Image') | ('ventana', _, 'Label_Image'):
+            return 'macro'
+        case ('ventana', _, _):
+            return None
+
+    for key in ('label', 'macro'):
+        if any(key in s for s in head.splitlines()):
+            return key
+    return None
+
+
+@dataclass(eq=False, frozen=True, kw_only=True)
+class _Image(_BaseImage):
+    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
+        return (
+            type(self) is type(rhs)
+            and self.buf is rhs.buf
+            and self.shape == rhs.shape
+            and self.decimations == rhs.decimations
+            and self.key == rhs.key
+        )
+
+    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
+        return hash((self.buf, self.shape, self.decimations, self.key))
+
+    def numpy(self) -> np.ndarray:
+        """Retrieve whole image as array"""
+        h, w, _ = self.shape
+        [(_, a)] = self.parts([((0, int(h)), (0, int(w)))])
+        return a
+
+
+@dataclass(eq=False, frozen=True, kw_only=True)
+class _Level(PartMixin, ImageLevel, _BaseImage):
+    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
+        return (
+            type(self) is type(rhs)
+            and self.buf is rhs.buf
+            and self.shape == rhs.shape
+            and self.decimations == rhs.decimations
+        )
+
+    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
+        return hash((self.buf, self.shape, self.decimations))
+
+
 class Tiff(Driver):
     def __init__(self, path: str) -> None:
-        self._fp: Sliceable[bytes]
+        self._buf = fopen(path)
         self._path = path
-
-        try:
-            TypeAdapter(HttpUrl).validate_python(path)
-
-        except ValidationError:  # Got local filename
-            # `r` - open TIFF in read-only mode, `m` - disable memory mapping
-            self._ptr = (
-                TIFF.TIFFOpenW(path, b'rm')
-                if sys.platform == 'win32'
-                else TIFF.TIFFOpen(path.encode(), b'rm')
-            )
-            if not self._ptr:
-                raise ValueError('libtiff failed to open file') from None
-            weakref.finalize(self, TIFF.TIFFClose, self._ptr)
-
-            with open(path, 'rb') as f:
-                self._fp = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-        else:  # Got URL
-            self._ptr = None
-            self._fp = _RemoteFile(path)
-
-        self._dir = 0
-        self._lock = Lock()
         self.cache = _CacheZYXC()
         self._ifds = list(self._iter_ifds())
 
@@ -716,7 +792,7 @@ class Tiff(Driver):
         )
 
     def _iter_ifds(self) -> Iterator[_ImageFileDirectory]:
-        header = self._fp[:4]
+        header = self._buf.pread(4, 0)
         try:
             byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
         except KeyError as exc:
@@ -730,7 +806,9 @@ class Tiff(Driver):
             head_size = 2
             o_fmt = 'I'  # u4
         elif version == 43:  # BigTIFF
-            usize, zero = struct.unpack(byteorder + 'HH', self._fp[4:8])
+            usize, zero = struct.unpack(
+                byteorder + 'HH', self._buf.pread(4, 4)
+            )
             if usize != 8 or zero != 0:
                 raise ValueError(
                     f'invalid BigTIFF offset size {(usize, zero)}'
@@ -755,35 +833,31 @@ class Tiff(Driver):
             t_body = t_body.newbyteorder()
             dtypes = {i: dt.newbyteorder() for i, dt in dtypes.items()}
 
-        [pos] = struct.unpack(o_fmt, self._fp[usize : usize * 2])
+        [pos] = struct.unpack(o_fmt, self._buf.pread(usize, usize))
         idx = 0
         while pos:
             # Read IFD header
             [num_tags] = struct.unpack(
-                head_fmt, self._fp[pos : pos + head_size]
+                head_fmt, self._buf.pread(head_size, pos)
             )
             pos += head_size
 
             # Read tags
             ts = np.frombuffer(
-                self._fp[pos : pos + t_body.itemsize * num_tags], t_body
+                self._buf.pread(t_body.itemsize * num_tags, pos), t_body
             )
-            pos += t_body.itemsize * num_tags
+            pos += ts.nbytes
 
-            yield self._parse_ifd(idx, ts, o_fmt=o_fmt, dtypes=dtypes)
+            tags = self._get_ifd_tags(ts, o_fmt=o_fmt, dtypes=dtypes)
+            yield _ImageFileDirectory(tags, idx)
 
             # Jump to next IFD
-            [pos] = struct.unpack(o_fmt, self._fp[pos : pos + usize])
+            [pos] = struct.unpack(o_fmt, self._buf.pread(usize, pos))
             idx += 1
 
-    def _parse_ifd(
-        self,
-        index: int,
-        ts: np.ndarray,
-        o_fmt: str,
-        dtypes: Mapping[int, np.dtype],
-    ) -> _ImageFileDirectory:
-
+    def _get_ifd_tags(
+        self, ts: np.ndarray, o_fmt: str, dtypes: Mapping[int, np.dtype]
+    ) -> dict[_Tag, Any]:
         m = np.isin(ts['tag'], _TAG_NAMES_A) & np.isin(ts['type'], _DTYPES_A)
         if (unknown := ts[~m][['tag', 'type']]).size:
             unknown = {t: _DTYPES.get(i, i) for t, i in unknown}
@@ -797,7 +871,7 @@ class Tiff(Driver):
 
             if size > struct.calcsize(o_fmt):
                 [o] = struct.unpack(o_fmt, value)
-                v = np.frombuffer(self._fp[o : o + size], dt.base)
+                v = np.frombuffer(self._buf.pread(size, o), dt.base)
             else:
                 v = value[:size].view(dt.base)
 
@@ -817,37 +891,13 @@ class Tiff(Driver):
 
             tags[_Tag(tag_)] = v
 
-        for k, t in [
-            (_Tag.COMPRESSION, _Compression),
-            (_Tag.COLORSPACE, _ColorSpace),
-            (_Tag.ORIENTATION, _Orientation),
-            (_Tag.PLANAR, _Planarity),
-            (
-                _Tag.DATETIME,
-                lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S'),
-            ),
-            (_Tag.REF_BLACK_WHITE, lambda x: x.reshape(3, 2)),
-            (_Tag.ICC_PROFILE, Icc),
-        ]:
-            if (v := tags.get(k)) is not None:
-                tags[k] = t(v)
-
-        return _ImageFileDirectory(tags, index)
+        return tags
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({self._path})'
 
     def get_mpp(self) -> float | None:
         return self.mpp
-
-    @contextmanager
-    def ifd(self, index: int) -> Iterator:
-        assert self._ptr is not None
-        with self._lock:
-            if self._dir != index:
-                self._dir = index
-                TIFF.TIFFSetDirectory(self._ptr, index)
-            yield self._ptr
 
     def __len__(self) -> int:
         n = len(self._ifds)
@@ -870,26 +920,16 @@ class Tiff(Driver):
         ):
             raise ValueError(f'Unsupported YUV subsampling: {ifd.subsampling}')
 
-        shape = ifd.image_shape
-        tile_shape = ifd.tile_shape
-
-        if tile_shape is None:  # Not tiled
-            return _Image(
-                shape,
-                icc_impl=ifd.get(_Tag.ICC_PROFILE),
-                tiff=self,
-                head=head,
-                index=index,
-            )
-
-        spans = ifd.tile_spans(shape, tile_shape)
-
-        return _Level(
-            shape,
+        key = _get_key(ifd, self.vendor, head, index)
+        tp = _Level if ifd.is_tiled else _Image
+        return tp(
+            ifd.image_shape,
+            key=key,
             icc_impl=ifd.get(_Tag.ICC_PROFILE),
-            memo=self._memo,
-            spans=spans,
-            tile_shape=tile_shape,
+            buf=self._buf,
+            path=self._path,
+            spans=ifd.spans,
+            tile_shape=ifd.unit_shape,
             decode=ifd.get_decoder(),
             cache=self.cache,
             fill=self._bg_color,
@@ -975,108 +1015,6 @@ class _CacheZYXC:
             if self.used <= max_size:
                 self.items[key] = (size, obj)
                 self.used += size
-
-
-class Sliceable[T](Protocol):
-    def __getitem__(self, key: slice, /) -> T: ...
-
-
-_BLOCK_SIZE = 16_384  # 16 kB
-_MAX_BLOCKS = 1000  # 16 MB cache
-
-_STACK = ExitStack()
-_CLIENT = _STACK.enter_context(
-    httpx.Client(http1=False, http2=True, follow_redirects=True)
-)
-atexit.register(_STACK.close)
-
-
-class _RemoteFile:
-    __slots__ = ('_cached', 'url')
-
-    def __init__(self, url: str | HttpUrl) -> None:
-        self.url = httpx.URL(str(url))
-
-        # Ensure range ok
-        r = _CLIENT.head(self.url, headers={'Accept': '*/*'})
-        r.raise_for_status()
-        if r.headers.get('Accept-Ranges') != 'bytes':
-            raise ValueError(f'Remote "{url}" does not support Range header')
-
-        self._cached = memoize(
-            capacity=_MAX_BLOCKS, bytesize=False, batched=True
-        )(self._get_many)
-
-    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash(self.url)
-
-    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
-        return type(self) is type(rhs) and self.url == rhs.url
-
-    def __getitem__(self, key: slice, /) -> bytes:
-        start, stop = key.start or 0, key.stop
-        assert stop is not None
-
-        lo = start // _BLOCK_SIZE
-        hi = (stop + _BLOCK_SIZE - 1) // _BLOCK_SIZE
-
-        s = BytesIO()
-        for blk in self._cached([(o, o + 1) for o in range(lo, hi)]):
-            s.write(blk)
-
-        s.seek(start - lo * _BLOCK_SIZE)
-        return s.read(stop - start)
-
-    def _get_many(self, spans: list[Span]) -> list[bytes]:
-        # Combine spans with common border
-        pos, spans = _merge_intervals(spans)
-
-        # Get long chunks
-        fp = BytesIO()
-        for start, stop in spans:
-            self._update(fp, start, stop)
-
-        # Split back to blocks and order
-        fp.seek(0)
-        rs = [b''] * len(pos)
-        for i in pos:
-            rs[i] = fp.read(_BLOCK_SIZE)
-        return rs
-
-    def _update(self, fp: BinaryIO, start: int, stop: int) -> None:
-        start *= _BLOCK_SIZE
-        stop *= _BLOCK_SIZE
-
-        with _CLIENT.stream(
-            'GET', self.url, headers={'Range': f'bytes={start}-{stop - 1}'}
-        ) as r:
-            r.raise_for_status()
-            if r.status_code != 206:
-                raise ValueError(
-                    f'Unexpected status: {r.status_code} for {self.url}'
-                )
-            for blk in r.iter_bytes():
-                fp.write(blk)
-
-
-def _merge_intervals(spans: list[Span]) -> tuple[list[int], list[Span]]:
-    n = len(spans)
-    if n == 1:
-        return [*range(n)], spans
-
-    # Ascening order of span.start
-    spans_a = np.asarray(spans)
-    pos = spans_a[:, 0].argsort()  # (n)
-    spans_a = spans_a[pos]  # (n 2)
-
-    # "Merge intervals" algorithm for non-overlapping intervals
-    # See https://stackoverflow.com/a/58976449/9868257
-    edges = spans_a[:-1, 1] < spans_a[1:, 0]  # (n-1)
-    edges = np.r_[True, edges, True]  # (n+1)
-    mask = np.ndarray((n, 2), '?', buffer=edges, strides=edges.strides * 2)
-    spans_a = spans_a[mask].reshape(-1, 2)
-
-    return pos.tolist(), spans_a.tolist()
 
 
 _DTYPES: dict[int, np.dtype] = {

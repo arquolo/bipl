@@ -31,10 +31,7 @@ class Image:
     post: list[Callable[[np.ndarray], np.ndarray]] = field(
         default_factory=list
     )
-
-    @property
-    def key(self) -> str | None:
-        raise NotImplementedError
+    key: str | None = None
 
     def numpy(self) -> np.ndarray:
         """Convert to ndarray"""
@@ -84,10 +81,7 @@ class PartsMixin(HasPartsAbc):
 
 @dataclass(frozen=True)
 class ImageLevel(Image, HasPartsAbc):
-    @final
-    @property
-    def key(self) -> None:
-        return None
+    key = None
 
     @final
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:

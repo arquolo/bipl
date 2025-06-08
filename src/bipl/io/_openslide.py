@@ -159,10 +159,6 @@ class _Image(Image):
     name: bytes
     osd: 'Openslide'
 
-    @property
-    def key(self) -> str:
-        return self.name.decode()
-
     def numpy(self) -> np.ndarray:
         bgra = np.empty((*self.shape[:2], 4), 'u1')
         OSD.openslide_read_associated_image(
@@ -303,7 +299,7 @@ class Openslide(Driver):
         OSD.openslide_get_associated_image_dimensions(
             self.ptr, name, byref(w), byref(h)
         )
-        return _Image((h.value, w.value, 3), name=name, osd=self)
+        return _Image((h.value, w.value, 3), key=key, name=name, osd=self)
 
     @property
     def bbox(self) -> tuple[slice, ...]:
