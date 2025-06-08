@@ -2,7 +2,7 @@ __all__ = ['env']
 
 from typing import Literal
 
-from pydantic import ByteSize, TypeAdapter
+from pydantic import ByteSize, HttpUrl, TypeAdapter
 from pydantic_settings import BaseSettings
 
 _bs_adapter = TypeAdapter(ByteSize)
@@ -44,6 +44,8 @@ class Env(BaseSettings):
     BIPL_NORM: bool = False  # Normalize luminance
 
     BIPL_MPP_Q: int = 12  # 2^(1/Q) MPP rounding (default 1.06x step)
+
+    BIPL_COV_URL: HttpUrl | None = None
 
 
 env = Env()
