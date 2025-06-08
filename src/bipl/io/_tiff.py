@@ -167,7 +167,12 @@ class _Tag(Enum):
     REF_BLACK_WHITE = 532
     XMP = 700
     IMAGE_DEPTH = 32997
+    CZ_LSMINFO = 34412
     ICC_PROFILE = 34675
+    # EER metadata
+    BITS_SKIP_POS = 65007
+    BITS_HORZ_SUB = 65008
+    BITS_VERT_SUB = 65009
     # NDPI stiff
     NDPI_VERSION = 65420  # 1 for any NDPI
     SOURCE_LENS = 65421  # macro = -1, map of non-empty regions = -2
@@ -420,7 +425,11 @@ class _Level(PartMixin, ImageLevel, _BaseImage):
     decimations: int = 0  # [0, 1, 2, ..., n]
     prev: ImageLevel | None = None
 
-    def decimate(self, dst: float, src: int = 1) -> tuple[int, '_Level']:
+    @property
+    def icc(self) -> Icc | None:
+        return self.icc_impl
+
+    def decimate(self, dst: float, src: int = 1) -> tuple[int, Self]:
         assert dst >= 1
         assert src >= 1
         th, tw, tc = self.tile_shape
@@ -712,11 +721,13 @@ class Tiff(Driver):
             byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
         except KeyError as exc:
             raise ValueError(f'not a TIFF file {header!r}') from exc
+        assert byteorder in ('<', '>')
 
         [version] = struct.unpack(byteorder + 'H', header[2:4])
         if version == 42:  # TIFF
             usize = 4
             head_fmt = 'H'  # u2
+            head_size = 2
             o_fmt = 'I'  # u4
         elif version == 43:  # BigTIFF
             usize, zero = struct.unpack(byteorder + 'HH', self._fp[4:8])
@@ -725,6 +736,7 @@ class Tiff(Driver):
                     f'invalid BigTIFF offset size {(usize, zero)}'
                 )
             head_fmt = o_fmt = 'Q'  # u8
+            head_size = 8
         else:
             raise ValueError(f'invalid TIFF version: {version}')
 
@@ -747,7 +759,6 @@ class Tiff(Driver):
         idx = 0
         while pos:
             # Read IFD header
-            head_size = struct.calcsize(head_fmt)
             [num_tags] = struct.unpack(
                 head_fmt, self._fp[pos : pos + head_size]
             )
@@ -927,22 +938,22 @@ class Tiff(Driver):
 
 
 class _CacheZYXC:
-    __slots__ = ('buf', 'lock', 'used')
+    __slots__ = ('items', 'lock', 'used')
 
     def __init__(self) -> None:
         self.lock = Lock()
         self.used: int = 0
-        self.buf: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
+        self.items: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
 
     def __repr__(self) -> str:
         return (
             f'{type(self).__name__}'
-            f'(used={si_bin(self.used)}, items={len(self.buf)})'
+            f'(used={si_bin(self.used)}, items={len(self.items)})'
         )
 
     def __getitem__(self, key: tuple) -> _U8 | None:
         with self.lock:
-            if e := self.buf.get(key):
+            if e := self.items.get(key):
                 return e[1]
         return None
 
@@ -958,11 +969,11 @@ class _CacheZYXC:
             return
         max_size = capacity - size
         with self.lock:
-            while self.buf and self.used > max_size:
-                k = next(iter(self.buf))
-                self.used -= self.buf.pop(k)[0]
+            while self.items and self.used > max_size:
+                k = next(iter(self.items))
+                self.used -= self.items.pop(k)[0]
             if self.used <= max_size:
-                self.buf[key] = (size, obj)
+                self.items[key] = (size, obj)
                 self.used += size
 
 
