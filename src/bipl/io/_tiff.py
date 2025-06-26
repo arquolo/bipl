@@ -11,8 +11,6 @@ __all__ = ['Tiff']
 import struct
 import sys
 import warnings
-import weakref
-from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -597,7 +595,7 @@ class _BaseImage(Image):
         nulls: list[NDIndex] = []
         for iyx in tile_to_boxes:
             nbytes = self.spans[iyx] @ [-1, 1]
-            (ids, nulls)[nbytes == 0].append(iyx)
+            (ids, nulls)[int(nbytes) == 0].append(iyx)
 
         prev_tiles: Iterator[tuple[NDIndex, np.ndarray | None]]
         if self.prev is not None and nulls:
