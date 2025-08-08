@@ -11,7 +11,7 @@ from typing import Literal, final, overload
 from warnings import warn
 
 import numpy as np
-from glow import memoize, shared_call, weak_memoize
+from glow import memoize
 
 from bipl import cov, env
 from bipl._types import Patch, Shape, Span, Vec
@@ -77,11 +77,9 @@ _load_drivers()
 
 
 # Merge duplicate calls
-@shared_call
 # Reuse result if it's already exist, but used by someone else
-@weak_memoize
 # Keep LRU for unused results
-@memoize(capacity=env.BIPL_CACHE, policy='lru', bytesize=False)
+@memoize(env.BIPL_CACHE, policy='lru')
 def _cached_open(path: str) -> 'Slide':
     if tps := Driver.find(path):
         errors: list[Exception] = []

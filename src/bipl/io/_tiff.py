@@ -25,7 +25,7 @@ import cv2
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import shared_call, si_bin, starmap_n
+from glow import memoize, si_bin, starmap_n
 
 from bipl._env import env
 from bipl._fileio import Paged, fopen
@@ -515,7 +515,7 @@ class _BaseImage(Image):
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
         return hash((self.buf, self.shape, self.decimations))
 
-    @shared_call  # Thread safety
+    @memoize(0)  # Thread safety
     def tile(self, *idx: int) -> _U8 | None:
         lo, hi = self.spans[idx].tolist()
         if lo == hi:  # If nothing to read, don't read

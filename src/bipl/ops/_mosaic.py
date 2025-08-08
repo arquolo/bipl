@@ -6,14 +6,14 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, starmap
+from itertools import batched, chain, starmap
 from math import ceil
 from typing import Literal, Self, cast
 
 import cv2
 import numpy as np
 import numpy.typing as npt
-from glow import chunked, map_n, starmap_n
+from glow import map_n, starmap_n
 
 from bipl._types import HasPartsAbc, NDIndex, NumpyLike, Shape, Span, Tile, Vec
 
@@ -274,7 +274,7 @@ class Tiles(Patches):
         """
         tile_fn = partial(_apply_batched, fn)
 
-        chunks = chunked(self, batch_size)
+        chunks = batched(self, batch_size)
         batches = map_n(tile_fn, chunks, max_workers=max_workers)
         tiles = chain.from_iterable(batches)
 

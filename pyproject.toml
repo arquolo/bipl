@@ -38,7 +38,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "glow~=0.14.0",
+    "glow~=0.15.0",
     "imagecodecs",
     "lxml",
     "numpy >=1.21, <3",

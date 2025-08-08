@@ -14,6 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+import geojson
+import uvicorn
+from fastapi import FastAPI
 from glow.cli import parse_args
 from pydantic import BaseModel
 
@@ -59,8 +62,6 @@ class _Coverage:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def flush(self) -> None:
-        import geojson
-
         for fname, pgs in self.polygons.items():
             path = self.rootdir / f'{fname}.geojson'
             if path.is_file():
@@ -96,9 +97,6 @@ class _Coverage:
 
 
 def _main(rootdir: Path, host: str, port: int = 7575) -> None:
-    import uvicorn
-    from fastapi import FastAPI
-
     cov = _Coverage(rootdir=rootdir)
     app = FastAPI()
     app.add_api_route('/update', cov.update, methods=['PUT'], status_code=204)

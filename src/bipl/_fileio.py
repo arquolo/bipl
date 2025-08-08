@@ -10,7 +10,7 @@ from threading import Thread
 from typing import Protocol
 
 import httpx
-from glow import call_once, memoize
+from glow import memoize
 from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from bipl._env import env
@@ -63,9 +63,9 @@ class _RemoteIO:
         self._loop, self._client = _aget_client()
         asyncio.run_coroutine_threadsafe(self._peek(), self._loop).result()
 
-        self._cached = memoize(
-            capacity=env.BIPL_TIFF_NUM_BLOCKS, bytesize=False, batched=True
-        )(self._get_many)
+        self._cached = memoize(env.BIPL_TIFF_NUM_BLOCKS, batched=True)(
+            self._get_many
+        )
 
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
         return hash(self.url)
@@ -132,7 +132,7 @@ class _RemoteIO:
             return await r.aread()
 
 
-@call_once
+@memoize()
 def _aget_client() -> tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]:
     loop = asyncio.new_event_loop()
     Thread(target=loop.run_forever, daemon=True).start()
