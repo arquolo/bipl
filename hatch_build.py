@@ -12,21 +12,15 @@ from tqdm import tqdm
 
 _BASEURL = (
     'https://github.com/openslide/openslide-bin'
-    '/releases/download/v{version}/'
+    '/releases/download'
+    '/v{version}/openslide_bin-{version}-py3-none-win_amd64.whl'
 )
 _FILTERS = {
-    '20221217': (
-        'openslide-win64-{version}.zip',
-        r'(libjpeg-62|libtiff-6|zlib1)\.dll',
-    ),
-    '4.0.0.8': (
-        'openslide_bin-{version}-py3-none-win_amd64.whl',
-        r'libopenslide-1\.dll',
-    ),
+    '4.0.0.8': r'libopenslide-1\.dll',
 }
 _URLS = {
-    f'{_BASEURL}{tail}'.format(version=version): re.compile(regex)
-    for version, (tail, regex) in _FILTERS.items()
+    _BASEURL.format(version=version): re.compile(regex)
+    for version, regex in _FILTERS.items()
 }
 _TARGET = 'src/bipl/io/libs'
 
