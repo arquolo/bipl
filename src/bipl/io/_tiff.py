@@ -129,8 +129,11 @@ class _Tag(Enum):
     REF_BLACK_WHITE = 532
     XMP = 700
     IMAGE_DEPTH = 32997
+    EXPOSURE_TIME = 33434
     CZ_LSMINFO = 34412
+    EXIF_IFD = 34665  # Pointer to IFD
     ICC_PROFILE = 34675
+    CAMERA_SERIAL_NUMBER = 50735  # DNG
     # EER metadata
     BITS_SKIP_POS = 65007
     BITS_HORZ_SUB = 65008
@@ -618,7 +621,6 @@ class _BaseImage(Image):
             zip(box_ids.tolist(), o_locs.tolist())
         )
         for iyx, tile in chain(prev_tiles, tiles):
-
             # Update all parts using current tile
             for i, oyx, tyx in tile_to_boxes.get(iyx, []):
                 out = buf[i]
@@ -640,7 +642,8 @@ class _BaseImage(Image):
                 yield buf.pop(pos)
                 pos += 1
 
-    def _init_index(self, boxes: np.ndarray) -> tuple[  # (n yx lo/hi)
+    # (n yx lo/hi)
+    def _init_index(self, boxes: np.ndarray) -> tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray,

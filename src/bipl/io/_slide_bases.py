@@ -117,7 +117,6 @@ class ImageLevel(Image, HasPartsAbc):
         h, w, c = base.shape
         h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
         if scale <= 0.5:  # Downscale to more then 2x
-
             # NOTE: to use this datapath we must
             # - have 4^k downsamples (seen only in SVS)
             # - fail `octave()` call - always succedes unless SVS is choked
