@@ -11,16 +11,22 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 from tqdm import tqdm
 
 _BASEURL = (
-    'https://github.com/openslide/openslide-winbuild'
-    '/releases/download/v{version}/openslide-win64-{version}.zip'
+    'https://github.com/openslide/openslide-bin'
+    '/releases/download/v{version}/'
 )
 _FILTERS = {
-    '20221217': r'(libjpeg-62|libtiff-6|zlib1).dll',
-    '20231011': r'.*\.dll',
+    '20221217': (
+        'openslide-win64-{version}.zip',
+        r'(libjpeg-62|libtiff-6|zlib1)\.dll',
+    ),
+    '4.0.0.8': (
+        'openslide_bin-{version}-py3-none-win_amd64.whl',
+        r'libopenslide-1\.dll',
+    ),
 }
 _URLS = {
-    _BASEURL.format(version=version): re.compile(filter_)
-    for version, filter_ in _FILTERS.items()
+    f'{_BASEURL}{tail}'.format(version=version): re.compile(regex)
+    for version, (tail, regex) in _FILTERS.items()
 }
 _TARGET = 'src/bipl/io/libs'
 
