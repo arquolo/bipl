@@ -14,6 +14,7 @@ from glow import aceil, afloor, map_n
 from bipl import env
 from bipl._types import HasPartsAbc, Patch, Shape, Span, Tile
 from bipl.ops import get_fusion, normalize_loc, resize
+from bipl.ops._util import padslice
 
 from ._util import round2
 
@@ -25,13 +26,18 @@ _MIN_TILE = 256
 
 
 @dataclass(frozen=True)
-class Image:
+class Image:  # TODO: move decimate/rescale to this, use Image everywhere
     shape: Shape
     dtype = np.dtype(np.uint8)
     post: list[Callable[[np.ndarray], np.ndarray]] = field(
         default_factory=list
     )
     key: str | None = None
+
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
+        """Retrieve sub-image as array from set location"""
+        spans = normalize_loc(key, self.shape)
+        return padslice(self.numpy(), *spans)
 
     def numpy(self) -> np.ndarray:
         """Convert to ndarray"""

@@ -136,14 +136,17 @@ class Slide(PartMixin):
         # Retrieve all sub-images
         levels: list[ImageLevel] = []
         extras: dict[str, Image] = {}
+        nulls: list[Image] = []
         for idx in range(num_images):
             match driver[idx]:
                 case ImageLevel() as im:
                     levels.append(im)
                 case Image(key=str(key)) as im:
                     extras[key] = im
+                case Image(key=None) as im:
+                    nulls.append(im)
                 case _:
-                    continue
+                    pass
         extras |= driver.named_items()
 
         downsamples, levels = driver.build_pyramid(levels)

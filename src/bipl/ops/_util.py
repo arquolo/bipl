@@ -64,7 +64,7 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
 def normalize_loc(
     loc: Sequence[slice] | slice, shape: Sequence[int]
 ) -> tuple[Span, ...]:
-    """Ensures slices match ndim and have noo `None` endpoints"""
+    """Ensures slices match ndim and have no `None` endpoints"""
     if isinstance(loc, slice):
         loc = (loc,)
     if any(s.step not in (None, 1) for s in loc):
