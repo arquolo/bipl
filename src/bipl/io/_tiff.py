@@ -270,9 +270,12 @@ class _ImageFileDirectory(dict[_Tag, Any]):
                 f'IFD: {self.index}: Unknown compression {compression}'
             ) from None
 
+        unpredict: Callable | None = self.get(_Tag.PREDICTOR)
+
         if decompress is None:  # RAW
             tile_size = np.prod(self.unit_shape)
             self.spans[..., 1] = self.spans[..., 0] + tile_size
+            return _LambdaDecoder(None, unpredict, self.unit_shape)
 
         if decompress in {imagecodecs.jpeg_decode, imagecodecs.jpeg8_decode}:
             return partial(
@@ -285,11 +288,11 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         if decompress == imagecodecs.eer_decode:
             match compression:
                 case 65001:
-                    rlebits, horzbits, vertbits = 8, 2, 2
+                    skipbits, horzbits, vertbits = 8, 2, 2
                 case 65002:
-                    rlebits, horzbits, vertbits = 7, 2, 2
+                    skipbits, horzbits, vertbits = 7, 2, 2
                 case 65002:
-                    rlebits = self.get(_Tag.BITS_SKIP_POS, 7)
+                    skipbits = self.get(_Tag.BITS_SKIP_POS, 7)
                     horzbits = self.get(_Tag.BITS_HORZ_SUB, 2)
                     vertbits = self.get(_Tag.BITS_VERT_SUB, 2)
                 case _ as unreachable:
@@ -298,7 +301,7 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             return partial(
                 imagecodecs.eer_decode,
                 shape=(self.unit_shape[0], self.unit_shape[1]),
-                rlebits=rlebits,
+                skipbits=skipbits,
                 horzbits=horzbits,
                 vertbits=vertbits,
                 superres=False,
@@ -316,7 +319,6 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         }:
             return decompress
 
-        unpredict: Callable | None = self.get(_Tag.PREDICTOR)
         return _LambdaDecoder(decompress, unpredict, self.unit_shape)
 
     def _bg_color(self, meta: dict) -> _U8:

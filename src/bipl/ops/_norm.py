@@ -11,9 +11,11 @@ LUT_THRESHOLD = 160  # Slide dimmer this considered as low light
 
 
 class LumaScaler:
+    lut: np.ndarray | None
+
     def __init__(self, rgb: np.ndarray) -> None:
         gray = np.asarray(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY))
-        luma95 = np.percentile(gray, 95)  # type: ignore
+        luma95 = np.percentile(gray, 95)
 
         if luma95 <= LUT_THRESHOLD:
             lut = np.arange(256).astype('f4')

@@ -108,7 +108,7 @@ class Mosaic:
 
         # All of (ih iw YX)
         # First tile is [origin: origin + tile]
-        iyx = np.mgrid[:ih, :iw].transpose(1, 2, 0)
+        iyx: npt.NDArray[np.int64] = np.mgrid[:ih, :iw].transpose(1, 2, 0)
         yx0 = self.step * iyx + origin
         yx1 = self.tile_size + yx0
         locs = np.stack([yx0, yx1], -1)  # (ih iw YX lo-hi)
@@ -274,7 +274,7 @@ class Tiles(Patches):
         """
         tile_fn = partial(_apply_batched, fn)
 
-        chunks = batched(self, batch_size)
+        chunks = batched(self, batch_size, strict=False)
         batches = map_n(tile_fn, chunks, max_workers=max_workers)
         tiles = chain.from_iterable(batches)
 

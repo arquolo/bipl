@@ -13,7 +13,7 @@ from warnings import warn
 import numpy as np
 from glow import memoize
 
-from bipl import cov, env
+from bipl import _cov, env
 from bipl._types import Patch, Shape, Span, Vec
 from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
@@ -302,7 +302,7 @@ class Slide(PartMixin):
                 raise ValueError('Only one of zoom/mpp should be None')
             scale = self.mpp_or_error() / mpp
 
-        cov.update(self.path, z0_yx_offset, dsize, scale)
+        _cov.update(self.path, z0_yx_offset, dsize, scale)
         ds, lvl = self.best_level_for(1 / scale, tol=tol)
 
         yx_offset = tuple(int(c * scale) for c in z0_yx_offset)

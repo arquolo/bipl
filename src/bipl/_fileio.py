@@ -4,6 +4,7 @@ import asyncio
 import atexit
 import mmap
 import os
+from collections.abc import Sequence
 from contextlib import AsyncExitStack
 from io import BytesIO
 from threading import Thread
@@ -85,7 +86,7 @@ class _RemoteIO:
         s.seek(offset - lo * blk_size)
         return s.read(n)
 
-    def _get_many(self, spans: list[Span]) -> list[bytes]:
+    def _get_many(self, spans: Sequence[Span]) -> list[bytes]:
         # Combine spans with common border
         pos, spans = merge_intervals(spans)
 

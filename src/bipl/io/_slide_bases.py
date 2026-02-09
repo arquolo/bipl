@@ -148,7 +148,7 @@ class ImageLevel(Image, HasPartsAbc):
             base = replace(base, prev=replace(prev, post=post))
         return replace(base, post=post)
 
-    def decimate(self, dst: float, src: int = 1) -> tuple[int, 'ImageLevel']:
+    def decimate(self, dst: float, src: int = 1) -> tuple[int, Self]:
         return (src, self)
 
     def _unpack_2d_loc(

@@ -12,6 +12,7 @@ __all__ = [
 from collections.abc import Iterable, Sequence
 from itertools import starmap
 from math import ceil, floor
+from typing import cast
 
 import cv2
 import numpy as np
@@ -133,10 +134,10 @@ def crop_to(
         tuple(np.clip([0, ts], -t0, s - t0))
         for t0, ts, s in zip(vec, a.shape, shape)
     )
-    a = padslice(a, *loc)
+    aa = padslice(a, *loc)
 
     vec = tuple(max(v, 0) for v in vec)
-    return vec, a
+    return vec, aa
 
 
 def resize(
@@ -263,10 +264,10 @@ def at(a: NumpyLike, *loc: Span) -> np.ndarray:
     return a[s]
 
 
-def merge_intervals(spans: list[Span]) -> tuple[list[int], list[Span]]:
+def merge_intervals(spans: Sequence[Span]) -> tuple[list[int], list[Span]]:
     n = len(spans)
     if n == 1:
-        return [*range(n)], spans
+        return [*range(n)], [*spans]
 
     # Ascening order of span.start
     spans_a = np.asarray(spans)
@@ -280,4 +281,4 @@ def merge_intervals(spans: list[Span]) -> tuple[list[int], list[Span]]:
     mask = np.ndarray((n, 2), '?', buffer=edges, strides=edges.strides * 2)
     spans_a = spans_a[mask].reshape(-1, 2)
 
-    return pos.tolist(), spans_a.tolist()
+    return pos.tolist(), cast('list[Span]', spans_a.tolist())

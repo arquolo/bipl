@@ -15,7 +15,7 @@ name = "bipl"
 version = "0.6.6"
 description = "Openslide/libtiff/GDAL ndarray-like interface and lazy parallel tile-based processing"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13, <3.15"
 license = {file = "LICENSE"}
 keywords = [
     "medical", "images", "pathology", "whole-slide", "wsi", "pyramid", "slide",
@@ -34,12 +34,13 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 dependencies = [
     "glow~=0.15.0",
-    "imagecodecs",
+    "imagecodecs>=2026",
     "lxml",
     "numpy >=1.21, <3",
     "opencv-python-headless~=4.0",
@@ -57,16 +58,16 @@ gdal = [
     "gdal~=3.0",
 ]
 dev-core = [
-    "black~=25.1",
+    "black~=26.1",
     "flake8~=7.0",
     "flake8-pie",
     "flake8-pyi",
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.17",
-    "pytest~=8.0",
-    "ruff~=0.12.2",
+    "mypy~=1.19",
+    "pytest~=9.0",
+    "ruff~=0.15.0",
 ]
 cov = [
     "fastapi",
@@ -92,7 +93,7 @@ repository = "https://github.com"
 
 [tool.ruff]
 line-length = 79
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
@@ -156,15 +157,12 @@ ignore_missing_imports = true
 no_implicit_optional = true
 show_error_codes = true
 warn_unused_ignores = true
-plugins = [
-    "numpy.typing.mypy_plugin",
-]
 
 # Format
 
 [tool.black]
 line-length = 79
-target-version = ['py312']
+target-version = ['py313']
 skip-string-normalization = true
 
 [tool.ruff.format]
