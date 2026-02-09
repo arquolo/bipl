@@ -66,5 +66,5 @@ images: list[np.ndarray] = [*tiles]
 ```bash
 pip install bipl
 ```
-bipl is compatible with: Python 3.10+.
-Tested on ArchLinux, Ubuntu 20.04/22.04, Windows 10/11.
+BIPL is compatible with: Python 3.13+.
+Tested on Ubuntu & Windows.
