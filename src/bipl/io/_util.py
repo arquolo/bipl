@@ -190,10 +190,21 @@ class Icc:
         srgb = createProfile('sRGB')
         self._tf = buildTransform(f, srgb, inMode='RGB', outMode='RGB')
 
+        row = np.arange(256, dtype='B')
+        vs = [row[:, None, None], row[None, :, None], row[None, None, :]]
+        vs = np.broadcast_arrays(*vs)
+        lut = np.stack(vs, axis=-1).reshape(-1, 3)  # 2^24 1d RGB
+
+        pil = fromarray(lut.reshape(4096, 4096, 3))  # 3d RGB -> 2d RGB
+        self._tf.apply(pil, pil)
+        lut = np.array(pil, copy=False).reshape(-1, 3)  # 2^24 1d RGB
+
+        self.lut = lut
+        self.rgb2idx = np.array([1 << 16, 1 << 8, 1], dtype='I')  # u4 scaler
+
     def __call__(self, image: np.ndarray) -> np.ndarray:
-        pil = fromarray(image)
-        pil = self._tf.apply(pil)
-        return np.array(pil, copy=False)
+        assert image.dtype == 'B'
+        return self.lut[image @ self.rgb2idx]
 
 
 # -------------------------------- etc---------------------------------------
