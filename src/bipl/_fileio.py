@@ -4,11 +4,11 @@ import asyncio
 import atexit
 import mmap
 import os
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from contextlib import AsyncExitStack
 from io import BytesIO
 from threading import Thread
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from glow import memoize
@@ -62,7 +62,7 @@ class _RemoteIO:
         self.url = httpx.URL(url)
 
         self._loop, self._client = _aget_client()
-        asyncio.run_coroutine_threadsafe(self._peek(), self._loop).result()
+        _run_blocking(self._peek(), self._loop)
 
         self._cached = memoize(env.BIPL_TIFF_NUM_BLOCKS, batched=True)(
             self._get_many
@@ -92,9 +92,7 @@ class _RemoteIO:
 
         # Get long chunks
         fp = BytesIO()
-        asyncio.run_coroutine_threadsafe(
-            self._update_all(fp, spans), self._loop
-        ).result()
+        _run_blocking(self._update_all(fp, spans), self._loop)
 
         # Split back to blocks and order
         fp.seek(0)
@@ -113,11 +111,11 @@ class _RemoteIO:
             )
 
     async def _update_all(self, s: BytesIO, spans: list[Span]) -> None:
-        fs = (self._update(start, stop) for start, stop in spans)
-        for blk in await asyncio.gather(*fs):
+        aws = (self._fetch_block(start, stop) for start, stop in spans)
+        for blk in await asyncio.gather(*aws):
             s.write(blk)
 
-    async def _update(self, start: int, stop: int) -> bytes:
+    async def _fetch_block(self, start: int, stop: int) -> bytes:
         blk_size = env.BIPL_TIFF_BLOCK_SIZE
         start *= blk_size
         stop *= blk_size
@@ -139,15 +137,15 @@ def _aget_client() -> tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]:
     Thread(target=loop.run_forever, daemon=True).start()
 
     aes = AsyncExitStack()
-    atexit.register(_afinalize, aes, loop)
+    atexit.register(_run_blocking, aes.aclose(), loop)
 
     aclient = httpx.AsyncClient(http1=False, http2=True, follow_redirects=True)
-    asyncio.run_coroutine_threadsafe(
-        aes.enter_async_context(aclient), loop
-    ).result()
+    _run_blocking(aes.enter_async_context(aclient), loop)
 
     return loop, aclient
 
 
-def _afinalize(aes: AsyncExitStack, loop: asyncio.AbstractEventLoop) -> None:
-    asyncio.run_coroutine_threadsafe(aes.aclose(), loop).result()
+def _run_blocking[R](
+    aw: Coroutine[Any, Any, R], loop: asyncio.AbstractEventLoop
+) -> R:
+    return asyncio.run_coroutine_threadsafe(aw, loop).result()
