@@ -108,6 +108,8 @@ class _Tag(Enum):
     RES_X = 282
     RES_Y = 283
     PLANAR = 284
+    POS_X = 286  # TODO: use for positioning
+    POS_Y = 287  # TODO: use for positioning
     RES_UNIT = 296
     SOFTWARE = 305
     DATETIME = 306
@@ -128,6 +130,7 @@ class _Tag(Enum):
     YUV_POSITIONING = 531
     REF_BLACK_WHITE = 532
     XMP = 700
+    KFBIO_TEXT = 9270  # Just text like "Aperio Format ..." or random bytes
     IMAGE_DEPTH = 32997
     EXPOSURE_TIME = 33434
     CZ_LSMINFO = 34412
@@ -278,11 +281,12 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             return _LambdaDecoder(None, unpredict, self.unit_shape)
 
         if decompress in {imagecodecs.jpeg_decode, imagecodecs.jpeg8_decode}:
+            ocs = {1: 'GRAY', 3: 'RGB'}[self[_Tag.SAMPLES_PER_PIXEL]]
             return partial(
                 decompress,
                 tables=self.get(_Tag.JPEG_TABLES),
                 colorspace=self[_Tag.COLORSPACE].name,
-                outcolorspace='RGB',
+                outcolorspace=ocs,
             )
 
         if decompress == imagecodecs.eer_decode:
@@ -325,7 +329,7 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         if c := meta.get('ScanWhitePoint'):
             return np.array(int(c), 'u1')
 
-        bg_hex: bytes = self.get(_Tag.BACKGROUND_COLOR, b'FFFFFF')
+        bg_hex: bytes = self.get(_Tag.BACKGROUND_COLOR, b'FF')
         return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
 
     def vendor_props(self, vendor: str) -> tuple[str, dict[str, str]] | None:
@@ -547,6 +551,10 @@ class _BaseImage(Image):
             im = cv2.resize(im, (tw, th))
         elif self.decimations >= 2:
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
+
+        # Ensure output is HWC, even if C=1
+        if im.ndim == 2:
+            im = im[:, :, None]
 
         self.cache[key] = im
         return self._postprocess(im)

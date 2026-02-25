@@ -66,7 +66,7 @@ def _load_drivers() -> None:
     for drvname, pat in [  # LIFO, last driver takes priority
         ('gdal', r'^.*\.tiff?$'),
         ('openslide', r'^.*\.(bif|mrxs|ndpi|scn|svs(|slide)|tiff?|vms|vmu)$'),
-        ('tiff', r'^.*\.(bif|ndpi|svs|tiff?)$'),
+        ('tiff', r'^.*\.(bif|ndpi|svs|tiff?|qptiff)$'),
         ('gdal', r'^(/vsicurl|(https?|ftp)://).*$'),
     ]:
         if drv := drivers.get(drvname):
