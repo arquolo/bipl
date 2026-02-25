@@ -3,6 +3,7 @@ __all__ = [
     'crop_to',
     'get_fusion',
     'get_trapz',
+    'keep3d',
     'merge_intervals',
     'normalize_loc',
     'probs_to_rgb_heatmap',
@@ -167,7 +168,8 @@ def resize(
             case 'area':  # No pyramid, box filter. Slowest
                 interpolation = cv2.INTER_AREA
 
-    return cv2.resize(image, (w, h), interpolation=interpolation)
+    image = cv2.resize(image, (w, h), interpolation=interpolation)
+    return keep3d(image)
 
 
 def get_fusion(
@@ -250,13 +252,18 @@ def rescale_crop(
 
     # Resample image crop to destination grid
     dy, dx = (lo_ - lo + (scale - 1) / 2 for lo_, (lo, _) in zip(lo_f, loc))
-    return cv2.warpAffine(
+    r = cv2.warpAffine(
         r,
         np.array([[scale, 0, dx], [0, scale, dy]], 'f4'),
         (w, h),
         flags=interpolation | cv2.WARP_INVERSE_MAP,
         borderMode=cv2.BORDER_CONSTANT,
     )
+    return keep3d(r)
+
+
+def keep3d(im: np.ndarray) -> np.ndarray:
+    return im[:, :, None] if im.ndim == 2 else im
 
 
 def at(a: NumpyLike, *loc: Span) -> np.ndarray:

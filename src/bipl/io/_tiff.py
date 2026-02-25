@@ -30,6 +30,7 @@ from glow import memoize, si_bin, starmap_n
 from bipl._env import env
 from bipl._fileio import Paged, fopen
 from bipl._types import NDIndex, Patch, Shape, Span
+from bipl.ops._util import keep3d
 
 from ._slide_bases import Driver, Image, ImageLevel, PartMixin, ProxyLevel
 from ._util import (
@@ -553,8 +554,7 @@ class _BaseImage(Image):
             im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
 
         # Ensure output is HWC, even if C=1
-        if im.ndim == 2:
-            im = im[:, :, None]
+        im = keep3d(im)
 
         self.cache[key] = im
         return self._postprocess(im)

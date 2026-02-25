@@ -14,7 +14,7 @@ from glow import aceil, afloor, map_n
 from bipl import env
 from bipl._types import HasPartsAbc, Patch, Shape, Span, Tile
 from bipl.ops import get_fusion, normalize_loc, resize
-from bipl.ops._util import padslice
+from bipl.ops._util import keep3d, padslice
 
 from ._util import round2
 
@@ -174,8 +174,8 @@ class ImageLevel(Image, HasPartsAbc):
         offsets = np.abs(valid_box - box)
         if offsets.any():
             top, bottom, left, right = offsets.ravel().tolist()
-            rgb = cv2.copyMakeBorder(
-                rgb,
+            im = cv2.copyMakeBorder(
+                im,
                 top,
                 bottom,
                 left,
@@ -183,7 +183,8 @@ class ImageLevel(Image, HasPartsAbc):
                 borderType=cv2.BORDER_CONSTANT,
                 value=bg_color.tolist(),
             )
-        return np.ascontiguousarray(rgb)
+            im = keep3d(im)
+        return np.ascontiguousarray(im)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -236,6 +237,7 @@ class ProxyLevel(PartMixin, ImageLevel):
                 o = np.empty((h, w, *i.shape[2:]), i.dtype)
             else:
                 o = cv2.warpAffine(i, mat, (w, h), **kwargs)  # type: ignore
+                o = keep3d(o)
             return Patch(oyx, self._postprocess(o))
 
         return starmap(resample, self.base.parts(i_locs_lst, max_workers))

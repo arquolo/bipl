@@ -387,6 +387,7 @@ class _ArrayTiles(Tiles):
             raise ValueError(f'Mask should be 2D, got shape: {mask.shape}')
         if scale is None:
             scale = max(ms / s for ms, s in zip(mask.shape, self.data.shape))
+        assert scale is not None
 
         mask = np.where(mask, np.uint8(255), np.uint8(0))
 
