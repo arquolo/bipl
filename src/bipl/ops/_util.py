@@ -206,7 +206,7 @@ def get_fusion(
 
 def rescale_crop(
     a: NumpyLike, *loc: Span, scale: float = 1, interpolation: int = 0
-):
+) -> np.ndarray:
     """
     Rescale image, then crop with respect to subpixels.
 
@@ -263,7 +263,7 @@ def rescale_crop(
 
 
 def keep3d(im: np.ndarray) -> np.ndarray:
-    return im[:, :, None] if im.ndim == 2 else im
+    return im[..., None] if im.ndim in (0, 2) else im
 
 
 def at(a: NumpyLike, *loc: Span) -> np.ndarray:

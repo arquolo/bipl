@@ -116,7 +116,7 @@ class Slide(PartMixin):
     mpp: float | None
     driver: str
     bbox: tuple[slice, ...] = field(repr=False)
-    levels: Sequence[ImageLevel] = field(repr=False)
+    levels: Sequence[Image] = field(repr=False)
     extras: Mapping[str, Image] = field(repr=False)
     dtype = np.dtype(np.uint8)
 
@@ -134,7 +134,7 @@ class Slide(PartMixin):
             raise ValueError('Empty file')
 
         # Retrieve all sub-images
-        levels: list[ImageLevel] = []
+        levels: list[Image] = []
         extras: dict[str, Image] = {}
         nulls: list[Image] = []
         for idx in range(num_images):
@@ -223,12 +223,8 @@ class Slide(PartMixin):
         return Slide.open, (self.path,)
 
     def best_level_for(
-        self,
-        downsample: float,
-        /,
-        *,
-        tol: float = 0.01,
-    ) -> tuple[int, ImageLevel]:
+        self, downsample: float, /, *, tol: float = 0.01
+    ) -> tuple[int, Image]:
         """Gives the most detailed LOD below `downsample`"""
         k = max(1, 1 + tol)
         idx = max(bisect_right(self.downsamples, downsample * k) - 1, 0)
@@ -238,12 +234,12 @@ class Slide(PartMixin):
         # Make 2^k level as close as possible to target
         return lv.decimate(downsample, ds)
 
-    def resample(self, mpp: float, *, tol: float = 0.01) -> ImageLevel:
+    def resample(self, mpp: float, *, tol: float = 0.01) -> Image:
         """Resample slide to specific resolution"""
         downsample = mpp / self.mpp_or_error()
         return self.pool(downsample, tol=tol)
 
-    def pool(self, downsample: float, /, *, tol: float = 0.01) -> ImageLevel:
+    def pool(self, downsample: float, /, *, tol: float = 0.01) -> Image:
         """Use like `slide.pool(4)[y0:y1, x0:x1]` call"""
         ds, lvl = self.best_level_for(downsample, tol=tol)
         if ds == downsample:

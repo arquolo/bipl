@@ -1,7 +1,6 @@
-__all__ = ['Driver', 'Image', 'ImageLevel', 'PartMixin', 'PartsMixin']
+__all__ = ['Driver', 'Image', 'ImageLevel', 'PartMixin']
 
 import re
-from abc import abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import starmap
@@ -26,7 +25,7 @@ _MIN_TILE = 256
 
 
 @dataclass(frozen=True)
-class Image:  # TODO: move decimate/rescale to this, use Image everywhere
+class Image:  # TODO: use Image everywhere
     shape: Shape
     dtype = np.dtype(np.uint8)
     post: list[Callable[[np.ndarray], np.ndarray]] = field(
@@ -40,7 +39,7 @@ class Image:  # TODO: move decimate/rescale to this, use Image everywhere
         return padslice(self.numpy(), *spans)
 
     def numpy(self) -> np.ndarray:
-        """Convert to ndarray"""
+        """Converts to ndarray"""
         raise NotImplementedError
 
     @final
@@ -60,69 +59,39 @@ class Image:  # TODO: move decimate/rescale to this, use Image everywhere
     def icc(self) -> 'Icc | None':
         return None
 
-
-class PartMixin(HasPartsAbc):
-    @final
-    def part(self, *loc: Span) -> np.ndarray:
-        [(_, a)] = self.parts([loc])
-        return a
-
-
-class PartsMixin(HasPartsAbc):
-    @abstractmethod
     def part(self, *loc: Span) -> np.ndarray:
         """Reads crop of LOD. Overridable"""
-        raise NotImplementedError
+        return padslice(self.numpy(), *loc)
 
-    @final
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
     ) -> Iterator[Patch]:
-        return map_n(
-            lambda loc: Patch(loc, self.part(*loc)),
-            locs,
-            max_workers=max_workers,
-        )
+        im = self.numpy()
+        return (Patch(loc, padslice(im, *loc)) for loc in locs)
 
-
-@dataclass(frozen=True)
-class ImageLevel(Image, HasPartsAbc):
-    key = None
-
-    @final
-    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
-        """Retrieve sub-image as array from set location"""
-        y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
-        [(_, a)] = self.parts([(y_loc, x_loc)])
-        return a[:, :, c_lo:c_hi]
-
-    @final
-    def numpy(self) -> np.ndarray:
-        """Retrieve whole image as array"""
-        return self[:, :]
-
-    def rescale(self, scale: float) -> 'ImageLevel':
+    def rescale(self, scale: float) -> 'Image':
         """
-        Rescale image to set `scale`. Downscale if `scale` is less then 1,
-        upscale otherwise.
+        Rescales image to set `scale`. Downscales if `scale` is less then 1,
+        upscales otherwise.
         """
         if scale == 1:
             return self
 
         post = self.post
-        if isinstance(self, ProxyLevel):  # Unwrap if already present
+        if isinstance(self, ProxyImage | ProxyLevel):
             scale = self.scale * scale
             base = self.base
         else:
-            # Discard `post`
             base = self
-            if prev := getattr(base, 'prev', None):
-                base = replace(base, prev=replace(prev, post=[]))
+            if isinstance(base, ChainedImage) and base.prev:
+                base = replace(base, prev=replace(base.prev, post=[]))
             base = replace(base, post=[])
 
         h, w, c = base.shape
-        h, w = (round(h * scale), round(w * scale))  # TODO: round/ceil/floor ?
-        if scale <= 0.5:  # Downscale to more then 2x
+        h, w = round(h * scale), round(w * scale)  # TODO: round/ceil/floor ?
+
+        # Downscale to more then 2x
+        if isinstance(base, ImageLevel) and scale <= 0.5:
             # NOTE: to use this datapath we must
             # - have 4^k downsamples (seen only in SVS)
             # - fail `octave()` call - always succedes unless SVS is choked
@@ -140,16 +109,80 @@ class ImageLevel(Image, HasPartsAbc):
                 (bh, bw, bc), base=base, downsample=downsample, r_tile=r_tile
             )
 
-        if scale != 1 and base.shape != (h, w, c):
-            return ProxyLevel((h, w, c), post=post, scale=scale, base=base)
+        if scale == 1 or base.shape == (h, w, c):
+            # Inject `post` back
+            if isinstance(base, ChainedImage) and base.prev:
+                base = replace(base, prev=replace(base.prev, post=post))
+            return replace(base, post=post)
 
-        # Inject `post` back
-        if prev := getattr(base, 'prev', None):
-            base = replace(base, prev=replace(prev, post=post))
-        return replace(base, post=post)
+        return (
+            ProxyLevel((h, w, c), post, None, scale=scale, base=base)
+            if isinstance(base, ImageLevel)
+            else ProxyImage((h, w, c), post, base.key, scale=scale, base=base)
+        )
 
     def decimate(self, dst: float, src: int = 1) -> tuple[int, Self]:
+        """Tries to create a new Image having `dst` magnification.
+
+        Accepts `src` as initial and `dst` as target magnifications.
+        Resulting image could have magnification less then target `dst`.
+        """
+        # By default, image could not be decimated, unless you read it in full
         return (src, self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ChainedImage(Image):
+    prev: Image | None = None
+
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ProxyImage(Image):
+    scale: float
+    base: Image
+
+    def numpy(self) -> np.ndarray:
+        i = self.base.numpy()
+        h, w = self.shape[:2]
+        if not i.size:
+            return np.empty((h, w, *i.shape[2:]), i.dtype)
+
+        o = resize(i, (h, w))
+        return self._postprocess(o)
+
+
+class PartMixin(HasPartsAbc):
+    @final
+    def part(self, *loc: Span) -> np.ndarray:
+        [(_, a)] = self.parts([loc])
+        return a
+
+
+@dataclass(frozen=True)
+class ImageLevel(Image):
+    key = None
+
+    @final
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
+        """Retrieve sub-image as array from set location"""
+        y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
+        a = self.part(y_loc, x_loc)
+        return a[:, :, c_lo:c_hi]
+
+    @final
+    def numpy(self) -> np.ndarray:
+        """Retrieve whole image as array"""
+        return self[:, :]
+
+    def parts(
+        self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
+    ) -> Iterator[Patch]:
+        return map_n(
+            lambda loc: Patch(loc, self.part(*loc)),
+            locs,
+            max_workers=max_workers,
+        )
 
     def _unpack_2d_loc(
         self, *loc: Span
@@ -187,6 +220,7 @@ class ImageLevel(Image, HasPartsAbc):
         return np.ascontiguousarray(im)
 
 
+@final
 @dataclass(frozen=True, kw_only=True)
 class ProxyLevel(PartMixin, ImageLevel):
     scale: float
@@ -231,6 +265,7 @@ class ProxyLevel(PartMixin, ImageLevel):
         }
 
         # TODO: make this parallel
+        # FIXME: aliases at large scales
         def resample(iyx: tuple[Span, ...], i: np.ndarray) -> Patch:
             oyx, (h, w), mat = i2o[iyx]
             if not i.size:
@@ -243,6 +278,7 @@ class ProxyLevel(PartMixin, ImageLevel):
         return starmap(resample, self.base.parts(i_locs_lst, max_workers))
 
 
+@final
 @dataclass(frozen=True, kw_only=True)
 class TiledProxyLevel(PartMixin, ImageLevel):
     base: ImageLevel
@@ -369,8 +405,8 @@ class Driver:
         return slice(None), slice(None)
 
     def build_pyramid(
-        self, levels: Sequence[ImageLevel]
-    ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+        self, levels: Sequence[Image]
+    ) -> tuple[tuple[int, ...], list[Image]]:
         if not levels:
             raise TypeError('No tiled layers present')
 

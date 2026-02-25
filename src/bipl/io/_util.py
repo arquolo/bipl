@@ -35,7 +35,7 @@ def unflatten(d: Mapping[str, str]) -> dict[str, Any]:
         rr = r
         for curr, next_ in zip_longest(parts, parts[1:], fillvalue=None):
             # Put list if next is list idx, otherwise put dict
-            default: list | dict | str
+            default: list[Any] | dict[str, Any] | str
             default = (
                 v if next_ is None else ([] if isinstance(next_, int) else {})
             )
@@ -95,8 +95,7 @@ def get_ventana_properties(
 ) -> dict[str, str]:
     if isinstance(s, np.ndarray):
         s = s.tobytes()
-    assert isinstance(s, bytes)
-    s = s.strip(b'\00')  # For safety
+    s = bytes(s).strip(b'\00')  # For safety
     t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
     if index == 0:
         if (root := t.find('iScan')) is not None:
@@ -196,7 +195,7 @@ class Icc:
         self._tf = buildTransform(f, srgb, inMode='RGB', outMode='RGB')
 
         row = np.arange(256, dtype='B')
-        vs = [row[:, None, None], row[None, :, None], row[None, None, :]]
+        vs = (row[:, None, None], row[None, :, None], row[None, None, :])
         vs = np.broadcast_arrays(*vs)
         lut = np.stack(vs, axis=-1).reshape(-1, 3)  # 2^24 1d RGB
 
@@ -204,12 +203,11 @@ class Icc:
         self._tf.apply(pil, pil)
         lut = np.array(pil, copy=False).reshape(-1, 3)  # 2^24 1d RGB
 
-        lut1 = lut.reshape(256, 256, 256, 3)[row, row, row].reshape(-1, 3)
-        lut1 = lut1.astype('u2').mean(-1, keepdims=True).astype('B')
-
-        self.lut1 = lut1
         self.lut = lut
-        self.rgb2idx = np.array([1 << 16, 1 << 8, 1], dtype='I')  # u4 scaler
+        self.rgb2idx = np.array([65536, 256, 1], dtype='I')  # u4 scaler
+
+        lut1 = lut.reshape(-1, 3)[::65793]  # 256^2 + 256 + 1
+        self.lut1 = lut1.mean(-1, 'H', keepdims=True).astype('B')
 
     def __call__(self, image: np.ndarray) -> np.ndarray:
         assert image.dtype == 'B'

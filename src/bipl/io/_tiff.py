@@ -32,7 +32,15 @@ from bipl._fileio import Paged, fopen
 from bipl._types import NDIndex, Patch, Shape, Span
 from bipl.ops._util import keep3d
 
-from ._slide_bases import Driver, Image, ImageLevel, PartMixin, ProxyLevel
+from . import _tiff_cmp
+from ._slide_bases import (
+    ChainedImage,
+    Driver,
+    Image,
+    ImageLevel,
+    PartMixin,
+    ProxyLevel,
+)
 from ._util import (
     Icc,
     get_aperio_properties,
@@ -292,11 +300,11 @@ class _ImageFileDirectory(dict[_Tag, Any]):
 
         if decompress == imagecodecs.eer_decode:
             match compression:
-                case 65001:
+                case _tiff_cmp.EER_V0:
                     skipbits, horzbits, vertbits = 8, 2, 2
-                case 65002:
+                case _tiff_cmp.EER_V1:
                     skipbits, horzbits, vertbits = 7, 2, 2
-                case 65002:
+                case _tiff_cmp.EER_V2:
                     skipbits = self.get(_Tag.BITS_SKIP_POS, 7)
                     horzbits = self.get(_Tag.BITS_HORZ_SUB, 2)
                     vertbits = self.get(_Tag.BITS_VERT_SUB, 2)
@@ -427,26 +435,43 @@ def _jetraw_decode(buf: bytes, *, shape: Shape) -> _U8:
     return out
 
 
-# For IDs see bipl.io._tiff_compressions
+# For IDs see bipl.io._tiff_cmp
 _decomp_to_ids: dict[Callable | None, set[int]] = {
     # bytes -> bytes
-    None: {1},
-    imagecodecs.deflate_decode: {8, 32946, 50013},
-    imagecodecs.lzma_decode: {34925},
-    imagecodecs.lzw_decode: {5},
-    imagecodecs.packbits_decode: {32773},
-    imagecodecs.zstd_decode: {34926, 50000},
+    None: {_tiff_cmp.RAW},
+    imagecodecs.deflate_decode: {
+        _tiff_cmp.ADOBE_DEFLATE,
+        _tiff_cmp.DEFLATE,
+        _tiff_cmp.PIXTIFF,
+    },
+    imagecodecs.lzma_decode: {_tiff_cmp.LZMA},
+    imagecodecs.lzw_decode: {_tiff_cmp.LZW},
+    imagecodecs.packbits_decode: {_tiff_cmp.PACKBITS},
+    imagecodecs.zstd_decode: {_tiff_cmp.ZSTD_DEPRECATED, _tiff_cmp.ZSTD},
     # bytes -> ndarray, no predictor
-    _jetraw_decode: {48124},
-    imagecodecs.eer_decode: {65000, 65001, 65002},
-    imagecodecs.jpeg_decode: {6, 7, 33007},
-    imagecodecs.jpeg2k_decode: {33003, 33004, 33005, 34712},
-    imagecodecs.jpeg8_decode: {34892},
-    imagecodecs.jpegxl_decode: {50002, 52546},
-    imagecodecs.jpegxr_decode: {22610, 34934},
-    imagecodecs.lerc_decode: {34887},
-    imagecodecs.png_decode: {34933},
-    imagecodecs.webp_decode: {34927, 50001},
+    _jetraw_decode: {_tiff_cmp.JETRAW},
+    imagecodecs.eer_decode: {
+        _tiff_cmp.EER_V0,
+        _tiff_cmp.EER_V1,
+        _tiff_cmp.EER_V2,
+    },
+    imagecodecs.jpeg_decode: {
+        _tiff_cmp.JPEG_OLD,
+        _tiff_cmp.JPEG,
+        _tiff_cmp.ALT_JPEG,
+    },
+    imagecodecs.jpeg2k_decode: {
+        _tiff_cmp.JPEG2000_YUV,
+        _tiff_cmp.JPEG2000_LOSSY,
+        _tiff_cmp.JPEG2000_RGB,
+        _tiff_cmp.JPEG2000,
+    },
+    imagecodecs.jpeg8_decode: {_tiff_cmp.JPEG_LOSSY},
+    imagecodecs.jpegxl_decode: {_tiff_cmp.JPEGXL, _tiff_cmp.JPEGXL_DNG},
+    imagecodecs.jpegxr_decode: {_tiff_cmp.JPEGXR_NDPI, _tiff_cmp.JPEGXR},
+    imagecodecs.lerc_decode: {_tiff_cmp.LERC},
+    imagecodecs.png_decode: {_tiff_cmp.PNG},
+    imagecodecs.webp_decode: {_tiff_cmp.WEBP_DEPRECATED, _tiff_cmp.WEBP},
 }
 _decompressors: dict[int, Callable | None] = {}
 for _decomp, _codec_ids in _decomp_to_ids.items():
@@ -466,7 +491,7 @@ _unpredictors: dict[int, Callable] = {
 
 
 @dataclass(eq=False, frozen=True, kw_only=True)
-class _BaseImage(Image):
+class _BaseImage(PartMixin, ChainedImage):
     icc_impl: Icc | None = None
     buf: Paged
     path: str
@@ -476,7 +501,6 @@ class _BaseImage(Image):
     cache: '_CacheZYXC'
     fill: _U8
     decimations: int = 0  # [0, 1, 2, ..., n]
-    prev: ImageLevel | None = None
 
     @property
     def icc(self) -> Icc | None:
@@ -520,10 +544,11 @@ class _BaseImage(Image):
             and self.buf is rhs.buf
             and self.shape == rhs.shape
             and self.decimations == rhs.decimations
+            and self.key == rhs.key
         )
 
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash((self.buf, self.shape, self.decimations))
+        return hash((self.buf, self.shape, self.decimations, self.key))
 
     @memoize(0)  # Thread safety
     def tile(self, *idx: int) -> _U8 | None:
@@ -757,18 +782,6 @@ def _get_key(
 
 @dataclass(eq=False, frozen=True, kw_only=True)
 class _Image(_BaseImage):
-    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
-        return (
-            type(self) is type(rhs)
-            and self.buf is rhs.buf
-            and self.shape == rhs.shape
-            and self.decimations == rhs.decimations
-            and self.key == rhs.key
-        )
-
-    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash((self.buf, self.shape, self.decimations, self.key))
-
     def numpy(self) -> np.ndarray:
         """Retrieve whole image as array"""
         h, w, _ = self.shape
@@ -777,17 +790,8 @@ class _Image(_BaseImage):
 
 
 @dataclass(eq=False, frozen=True, kw_only=True)
-class _Level(PartMixin, ImageLevel, _BaseImage):
-    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
-        return (
-            type(self) is type(rhs)
-            and self.buf is rhs.buf
-            and self.shape == rhs.shape
-            and self.decimations == rhs.decimations
-        )
-
-    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
-        return hash((self.buf, self.shape, self.decimations))
+class _Level(_BaseImage, ImageLevel):
+    pass
 
 
 class Tiff(Driver):
@@ -947,8 +951,8 @@ class Tiff(Driver):
         )
 
     def build_pyramid(
-        self, levels: Sequence[ImageLevel]
-    ) -> tuple[tuple[int, ...], list[ImageLevel]]:
+        self, levels: Sequence[Image]
+    ) -> tuple[tuple[int, ...], list[Image]]:
         downsamples, levels = super().build_pyramid(levels)
 
         if self.vendor != 'aperio':
@@ -973,6 +977,7 @@ class Tiff(Driver):
             prev_ds, prev = prev.decimate(ds, 1)
 
             if prev_ds != ds:
+                assert isinstance(prev, ImageLevel)
                 prev = ProxyLevel(
                     lv.shape,
                     prev.post,
