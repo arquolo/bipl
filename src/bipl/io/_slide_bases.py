@@ -166,7 +166,7 @@ class ImageLevel(Image, HasPartsAbc):
 
     @staticmethod
     def _expand(
-        rgb: np.ndarray,
+        im: np.ndarray,
         valid_box: np.ndarray,
         box: np.ndarray,
         bg_color: np.ndarray,

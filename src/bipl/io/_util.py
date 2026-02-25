@@ -90,7 +90,12 @@ def get_aperio_properties(
 # ----------------------------- xml description ------------------------------
 
 
-def get_ventana_properties(s: bytes, index: int = 0) -> dict[str, str]:
+def get_ventana_properties(
+    s: bytes | np.ndarray, index: int = 0
+) -> dict[str, str]:
+    if isinstance(s, np.ndarray):
+        s = s.tobytes()
+    assert isinstance(s, bytes)
     s = s.strip(b'\00')  # For safety
     t = fromstring(s, XMLParser(resolve_entities=False, no_network=True))
     if index == 0:
@@ -199,11 +204,17 @@ class Icc:
         self._tf.apply(pil, pil)
         lut = np.array(pil, copy=False).reshape(-1, 3)  # 2^24 1d RGB
 
+        lut1 = lut.reshape(256, 256, 256, 3)[row, row, row].reshape(-1, 3)
+        lut1 = lut1.astype('u2').mean(-1, keepdims=True).astype('B')
+
+        self.lut1 = lut1
         self.lut = lut
         self.rgb2idx = np.array([1 << 16, 1 << 8, 1], dtype='I')  # u4 scaler
 
     def __call__(self, image: np.ndarray) -> np.ndarray:
         assert image.dtype == 'B'
+        if image.shape[-1] == 1:
+            return self.lut1[image]
         return self.lut[image @ self.rgb2idx]
 
 

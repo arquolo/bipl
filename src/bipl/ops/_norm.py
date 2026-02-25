@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 from glow import around
 
+from ._util import keep3d
+
 LUMA_MAX = 240
 LUT_THRESHOLD = 160  # Slide dimmer this considered as low light
 
@@ -13,8 +15,11 @@ LUT_THRESHOLD = 160  # Slide dimmer this considered as low light
 class LumaScaler:
     lut: np.ndarray | None
 
-    def __init__(self, rgb: np.ndarray) -> None:
-        gray = np.asarray(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY))
+    def __init__(self, im: np.ndarray) -> None:
+        if im.shape[2] == 1:
+            gray = im
+        else:
+            gray = np.asarray(cv2.cvtColor(im, cv2.COLOR_RGB2GRAY))
         luma95 = np.percentile(gray, 95)
 
         if luma95 <= LUT_THRESHOLD:
@@ -24,10 +29,10 @@ class LumaScaler:
         else:
             self.lut = None
 
-    def __call__(self, rgb: np.ndarray) -> np.ndarray:
+    def __call__(self, im: np.ndarray) -> np.ndarray:
         if self.lut is not None:
-            return cv2.LUT(rgb.ravel(), self.lut).reshape(rgb.shape)
-        return rgb
+            return cv2.LUT(im.ravel(), self.lut).reshape(im.shape)
+        return im
 
 
 class Normalizer:
@@ -40,7 +45,7 @@ class Normalizer:
 
     def __init__(
         self,
-        rgb: np.ndarray | None = None,
+        im: np.ndarray | None = None,
         weight: float = 1.0,
         channels: Literal['L', 'ab', 'Lab'] = 'ab',
         r: float = 0.5,
@@ -50,8 +55,10 @@ class Normalizer:
         self.r = r
         self.weight = weight
         self.lut = None
-        if rgb is not None:
-            self.lut = self._make_lut(cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB))
+        if im is not None:
+            self.lut = self._make_lut(
+                cv2.cvtColor(im, cv2.COLOR_RGB2LAB) if im.shape[2] != 1 else im
+            )
 
     def _make_lut(self, lab: np.ndarray) -> np.ndarray:
         cdf = _minmax_cdf(lab) if self.r == 0 else self._unsharp_cdf(lab)
@@ -70,7 +77,8 @@ class Normalizer:
         lstar = lab[:, :, 0].ravel()  # (h w) -> n
         counts = np.bincount(lstar, minlength=256)  # 256
 
-        match self.channels:
+        channels = self.channels if lab.shape[2] == 3 else 'L'
+        match channels:
             case 'L':
                 f4 = f4[:, :, :1]
                 f4 *= 1 / 255
@@ -97,16 +105,32 @@ class Normalizer:
 
         return _make_cdf(df)
 
-    def __call__(self, rgb: np.ndarray) -> np.ndarray:
-        if not rgb.size:
-            return rgb
-        lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+    def __call__(self, im: np.ndarray) -> np.ndarray:
+        if not im.size:
+            return im
 
-        if (lut := self.lut) is None:
-            lut = self._make_lut(lab)
+        im = keep3d(im)
+        c = im.shape[-1]
+        if im.ndim != 3 or c not in (1, 3):
+            return im
 
-        lab[:, :, 0] = cv2.LUT(lab[:, :, 0], lut)
-        return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        if c == 1:  # Grayscale
+            if (lut := self.lut) is None:
+                lut = self._make_lut(im)
+
+            im = cv2.LUT(im[:, :, 0], lut)
+            return keep3d(im)
+
+        if c == 3:  # Assume RGB
+            lab = cv2.cvtColor(im, cv2.COLOR_RGB2LAB)
+
+            if (lut := self.lut) is None:
+                lut = self._make_lut(lab)
+
+            lab[:, :, 0] = cv2.LUT(lab[:, :, 0], lut)
+            return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+        return im
 
 
 def _make_cdf(pdf: np.ndarray) -> np.ndarray:

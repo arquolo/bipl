@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from bipl._types import NDIndex
+from bipl.ops._util import keep3d
 
 if TYPE_CHECKING:
     from ._slide import Slide
@@ -41,7 +42,7 @@ class Dzi(NamedTuple):
         offset_0 = tuple(ip * tile_0 for ip in iy_ix)
         return slide.at(offset_0, self.tile_size, scale=scale)
 
-    def compress(self, rgb: np.ndarray) -> bytes:
+    def compress(self, im: np.ndarray) -> bytes:
         qtag = {
             'jpeg': cv2.IMWRITE_JPEG_QUALITY,
             'webp': cv2.IMWRITE_WEBP_QUALITY,
@@ -49,6 +50,10 @@ class Dzi(NamedTuple):
         if qtag is None:
             raise RuntimeError(f'Unknown format: {self.fmt}')
 
-        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        im = keep3d(im)
+        if im.shape[2] == 1:
+            bgr = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+        else:
+            bgr = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
         _, data = cv2.imencode(f'.{self.fmt}', bgr, [qtag, self.quality])
         return data.tobytes()
