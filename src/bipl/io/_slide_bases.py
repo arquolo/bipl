@@ -370,9 +370,10 @@ class Driver:
     @final
     @staticmethod
     def find(path: str) -> list[type['Driver']]:
+        lpath = path.lower()
         tps: dict[type[Driver], None] = {}
         for pat, tps_ in _REGISTRY.items():
-            if pat.match(path):
+            if pat.match(lpath):
                 for tp in tps_:
                     tps[tp] = None
         return [*tps]

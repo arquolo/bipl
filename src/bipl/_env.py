@@ -9,7 +9,8 @@ _bs_adapter = TypeAdapter(ByteSize)
 
 
 class Env(BaseSettings):
-    BIPL_DRIVERS: set[str] = {'gdal', 'tiff', 'openslide'}
+    # Extra drivers, besides default `tiff` for tiff and `simple` for png/jpg
+    BIPL_DRIVERS: set[str] = {'openslide'}
     # Max slides opened
     BIPL_CACHE: int = 64
     # Max tiles cached per tiff slide

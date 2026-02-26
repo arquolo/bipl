@@ -17,7 +17,9 @@ from bipl import _cov, env
 from bipl._types import Patch, Shape, Span, Vec
 from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
+from ._raw import Raw  # always awailable
 from ._slide_bases import Driver, Image, ImageLevel, PartMixin
+from ._tiff import Tiff  # always awailable
 
 # TODO: inside Slide.open import ._slide.registry,
 # TODO: and in ._slide.registry do registration and DLL loading
@@ -38,11 +40,15 @@ def _load_drivers() -> None:
 
     imports = {
         'openslide': ('._openslide', 'Openslide', ''),
-        'tiff': ('._tiff', 'Tiff', ''),
         'gdal': ('._gdal', 'Gdal', gdal_warn),
     }
-    drivers: dict[str, type[Driver]] = {}
+    drivers: dict[str, type[Driver]] = {
+        'raw': Raw,
+        'tiff': Tiff,
+    }
     for drvname in [*env.BIPL_DRIVERS]:
+        if drvname in drivers:  # Skip if already loaded
+            continue
         # Find
         if (imp := imports.get(drvname)) is None:
             raise ValueError(f'Unknown driver: {drvname}')
@@ -60,14 +66,13 @@ def _load_drivers() -> None:
             drivers[drvname] = getattr(mod, attrname)
 
     os.environ['BIPL_DRIVERS'] = str([*env.BIPL_DRIVERS]).replace("'", '"')
-    if not drivers:
-        raise ImportError('No drivers loaded')
 
     for drvname, pat in [  # LIFO, last driver takes priority
         ('gdal', r'^.*\.tiff?$'),
         ('openslide', r'^.*\.(bif|mrxs|ndpi|scn|svs(|slide)|tiff?|vms|vmu)$'),
         ('tiff', r'^.*\.(bif|ndpi|svs|tiff?|qptiff)$'),
         ('gdal', r'^(/vsicurl|(https?|ftp)://).*$'),
+        ('raw', r'^.*\.(bmp|png|jpe?g|webp)$'),
     ]:
         if drv := drivers.get(drvname):
             drv.register(pat)
