@@ -1,6 +1,5 @@
 __all__ = ['Dzi']
 
-import json
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import cv2
@@ -18,21 +17,18 @@ class Dzi(NamedTuple):
     quality: int = 90
     fmt: Literal['jpeg', 'webp', 'avif'] = 'webp'
 
-    def head(self, slide: 'Slide') -> str:
+    def head(self, slide: 'Slide') -> dict:
         h, w, _ = slide.shape
         mpp = slide.mpp
         image = {
             'xmlns': 'http://schemas.microsoft.com/deepzoom/2008',
-            'Size': {
-                'Height': h,
-                'Width': w,
-            },
+            'Size': {'Height': h, 'Width': w},
             'MPP': mpp,
             'TileSize': self.tile_size,
             'Overlap': '0',
             'Format': self.fmt,
         }
-        return json.dumps({'Image': image})
+        return {'Image': image}
 
     def tile_at(
         self, slide: 'Slide', level: int, iy_ix: NDIndex

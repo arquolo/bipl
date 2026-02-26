@@ -68,3 +68,21 @@ pip install bipl
 ```
 BIPL is compatible with: Python 3.13+.
 Tested on Ubuntu & Windows.
+
+# DeepZoom server
+
+To start use:
+
+```bash
+pip install bipl[deepzoom]
+export SLIDES=~/slides
+uvicorn bipl.dzi:app --workers 4 --host 0.0.0.0 --port 8000
+```
+
+Or you can just use a router from there:
+
+```python
+from bipl.dzi import router
+
+your_fastapi_app.include_router(router)
+```

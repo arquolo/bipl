@@ -74,6 +74,11 @@ cov = [
     "geojson",
     "uvicorn[standard]",
 ]
+deepzoom = [
+    "fastapi",
+    "python-jose",
+    "uvicorn[standard]",
+]
 dev = [
     "bipl[dev-core]",
     "flake8-alphabetize",
