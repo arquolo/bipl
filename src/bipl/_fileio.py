@@ -5,7 +5,6 @@ import atexit
 import mmap
 import os
 from collections.abc import Coroutine, Sequence
-from contextlib import AsyncExitStack
 from io import BytesIO
 from threading import Thread
 from typing import Any, Protocol
@@ -22,7 +21,7 @@ _URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
 class Paged(Protocol):
-    def pread(self, n: int, offset: int, /) -> bytes: ...
+    def pread(self, n: int, start: int, /) -> bytes: ...
 
 
 def fopen(path: str) -> Paged:
@@ -49,24 +48,26 @@ class _MappedIO:
     def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return type(self) is type(rhs) and self.m == rhs.m
 
-    def pread(self, n: int, offset: int, /) -> bytes:
-        data = self.m[offset : offset + n]
+    def pread(self, n: int, start: int, /) -> bytes:
+        data = self.m[start : start + n]
         return data
 
 
 class _RemoteIO:
-    __slots__ = ('_cached', '_client', '_loop', 'url')
+    __slots__ = ('_await', '_cached', '_client', '_semlk', 'url')
 
     def __init__(self, url: str) -> None:
         _URL_ADAPTER.validate_python(url)
         self.url = httpx.URL(url)
 
-        self._loop, self._client = _aget_client()
-        _run_blocking(self._peek(), self._loop)
+        self._await, self._client = _get_await_n_client()
+        self._await(self._check_http_range_support())
 
-        self._cached = memoize(env.BIPL_TIFF_NUM_BLOCKS, batched=True)(
-            self._get_many
-        )
+        self._semlk = asyncio.Semaphore(env.BIPL_TIFF_REQS)
+
+        self._cached = memoize(
+            env.BIPL_TIFF_NUM_BLOCKS, batched=True, policy='lru'
+        )(self._get_many)
 
     def __hash__(self) -> int:  # Used by _Level.tile:shared_call
         return hash(self.url)
@@ -74,78 +75,77 @@ class _RemoteIO:
     def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return type(self) is type(rhs) and self.url == rhs.url
 
-    def pread(self, n: int, offset: int, /) -> bytes:
-        blk_size = env.BIPL_TIFF_BLOCK_SIZE
-        lo = offset // blk_size
-        hi = (offset + n + blk_size - 1) // blk_size
+    def pread(self, n: int, start: int, /) -> bytes:
+        bs = env.BIPL_TIFF_BLOCK_SIZE
+        stop = start + n
+        head = start % bs
+        tail = (-stop) % bs
 
         s = BytesIO()
-        for blk in self._cached([(o, o + 1) for o in range(lo, hi)]):
+        spans = [(o, o + bs) for o in range(start - head, stop + tail, bs)]
+        for blk in self._await(self._cached(spans)):
             s.write(blk)
 
-        s.seek(offset - lo * blk_size)
+        s.seek(head)
         return s.read(n)
 
-    def _get_many(self, spans: Sequence[Span]) -> list[bytes]:
-        # Combine spans with common border
+    async def _get_many(self, spans: Sequence[Span]) -> list[bytes]:
+        # `spans` is a list of block ids without duplicates, yet unsorted.
+        # Combine spans with common border, and reposition to match them
         pos, spans = merge_intervals(spans)
 
         # Get long chunks
         fp = BytesIO()
-        _run_blocking(self._update_all(fp, spans), self._loop)
+        coros = (self._get_block(start, stop) for start, stop in spans)
+        for blk in await asyncio.gather(*coros):
+            fp.write(blk)
 
         # Split back to blocks and order
         fp.seek(0)
+        bs = env.BIPL_TIFF_BLOCK_SIZE
         rs = [b''] * len(pos)
         for i in pos:
-            rs[i] = fp.read(env.BIPL_TIFF_BLOCK_SIZE)
+            rs[i] = fp.read(bs)
         return rs
 
-    async def _peek(self) -> None:
-        # Ensure range ok
-        r = await self._client.head(self.url, headers={'Accept': '*/*'})
-        r.raise_for_status()
-        if r.headers.get('Accept-Ranges') != 'bytes':
+    async def _check_http_range_support(self) -> None:
+        # Check if HTTP Range is supported
+        rsp = await self._client.head(self.url, headers={'Accept': '*/*'})
+        rsp.raise_for_status()
+        if rsp.headers.get('Accept-Ranges') != 'bytes':
             raise ValueError(
                 f'Remote "{self.url}" does not support Range header'
             )
 
-    async def _update_all(self, s: BytesIO, spans: list[Span]) -> None:
-        aws = (self._fetch_block(start, stop) for start, stop in spans)
-        for blk in await asyncio.gather(*aws):
-            s.write(blk)
-
-    async def _fetch_block(self, start: int, stop: int) -> bytes:
-        blk_size = env.BIPL_TIFF_BLOCK_SIZE
-        start *= blk_size
-        stop *= blk_size
-
-        async with self._client.stream(
-            'GET', self.url, headers={'Range': f'bytes={start}-{stop - 1}'}
-        ) as r:
-            r.raise_for_status()
-            if r.status_code != 206:
+    async def _get_block(self, start: int, stop: int) -> bytes:
+        async with (
+            self._semlk,
+            self._client.stream(
+                'GET', self.url, headers={'Range': f'bytes={start}-{stop - 1}'}
+            ) as rsp,
+        ):
+            rsp.raise_for_status()
+            if rsp.status_code != 206:
                 raise ValueError(
-                    f'Unexpected status: {r.status_code} for {self.url}'
+                    f'Unexpected status: {rsp.status_code} for {self.url}'
                 )
-            return await r.aread()
+            return await rsp.aread()
+
+
+class _Awaiter(Protocol):
+    def __call__[R](self, aw: Coroutine[Any, Any, R]) -> R: ...
 
 
 @memoize()
-def _aget_client() -> tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]:
+def _get_await_n_client() -> tuple[_Awaiter, httpx.AsyncClient]:
     loop = asyncio.new_event_loop()
     Thread(target=loop.run_forever, daemon=True).start()
 
-    aes = AsyncExitStack()
-    atexit.register(_run_blocking, aes.aclose(), loop)
+    def await_[R](aw: Coroutine[Any, Any, R]) -> R:
+        return asyncio.run_coroutine_threadsafe(aw, loop).result()
 
     aclient = httpx.AsyncClient(http1=False, http2=True, follow_redirects=True)
-    _run_blocking(aes.enter_async_context(aclient), loop)
+    await_(aclient.__aenter__())
+    atexit.register(await_, aclient.__aexit__(None, None, None))
 
-    return loop, aclient
-
-
-def _run_blocking[R](
-    aw: Coroutine[Any, Any, R], loop: asyncio.AbstractEventLoop
-) -> R:
-    return asyncio.run_coroutine_threadsafe(aw, loop).result()
+    return await_, aclient

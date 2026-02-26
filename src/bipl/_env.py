@@ -48,6 +48,7 @@ class Env(BaseSettings):
     # Remote TIFF block size & cache size
     BIPL_TIFF_BLOCK_SIZE: ByteSize = _bs_adapter.validate_python('16 KiB')
     BIPL_TIFF_NUM_BLOCKS: int = 1000
+    BIPL_TIFF_REQS: int = 10
 
     BIPL_COV_URL: HttpUrl | None = None
 

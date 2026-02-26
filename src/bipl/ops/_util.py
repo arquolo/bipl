@@ -272,11 +272,30 @@ def at(a: NumpyLike, *loc: Span) -> np.ndarray:
 
 
 def merge_intervals(spans: Sequence[Span]) -> tuple[list[int], list[Span]]:
+    """Merges overlapping intervals to non-overlapping ones.
+
+    Returns:
+    - indices of original intervals sorted in ascending order of their starts;
+    - new non-overlapping intervals.
+
+    Note: these lists have different lengths.
+
+    Example:
+        >>> merge_intervals([(1, 2), (3, 4), (0, 1)])
+        [2, 0, 1], [(0, 2), (3, 4)]
+
+    Explanation:
+
+    - After we reorder original intervals we'll got this:
+      (0, 1) from 2nd pos -> (1, 2) from 0th pos -> (3, 4) from 1st pos.
+    - Thus positions are [2, 0, 1].
+    - (0, 1) and (1, 2) could be merged into (0, 2), thus [(0, 2), (3, 4)].
+    """
     n = len(spans)
-    if n == 1:
+    if n <= 1:
         return [*range(n)], [*spans]
 
-    # Ascening order of span.start
+    # Ascending order of span.start
     spans_a = np.asarray(spans)
     pos = spans_a[:, 0].argsort()  # (n)
     spans_a = spans_a[pos]  # (n 2)
