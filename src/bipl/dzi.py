@@ -1,4 +1,4 @@
-__all__ = ['app', 'env', 'router']
+__all__ = ['app', 'env', 'get_full_path', 'get_slide', 'router']
 
 from functools import lru_cache
 from os.path import normpath
@@ -47,12 +47,11 @@ env = _Env()
 
 # --------------------------- endpoint definitions ---------------------------
 
-router = APIRouter()
+router = APIRouter(tags=['WSI'])
 dzi = Dzi(tile_size=env.tile_size, quality=env.quality, fmt='jpeg')
 
 
-@lru_cache(env.max_slides)
-def _get_slide(fname: str) -> Slide:
+def get_full_path(fname: str) -> Path:
     fname = unquote(fname)
 
     # Ensure path is local to the "root"
@@ -60,6 +59,13 @@ def _get_slide(fname: str) -> Slide:
     path = Path(normpath(root / fname))  # Resolve "..", don't touch symlinks
     if root not in path.parents:
         raise HTTPException(403, 'Directory traversal is forbidden')
+
+    return path
+
+
+@lru_cache(env.max_slides)
+def get_slide(fname: str) -> Slide:
+    path = get_full_path(fname)
 
     if not path.is_file():
         raise HTTPException(404, 'File not found')
@@ -78,7 +84,7 @@ def _get_slide(fname: str) -> Slide:
 # TODO: strip .jpeg suffix
 @router.get('/preview/{fname:path}.jpeg')
 def get_thumbnail(
-    s: Annotated[Slide, Depends(_get_slide)],
+    s: Annotated[Slide, Depends(get_slide)],
     size: int | None = None,
     orient: str | None = None,
 ) -> Response:
@@ -98,7 +104,7 @@ def get_thumbnail(
 @router.get('/extras/{tag}/{fname:path}')
 def get_extra_image(
     tag: str,
-    s: Annotated[Slide, Depends(_get_slide)],
+    s: Annotated[Slide, Depends(get_slide)],
     size: int | None = None,
 ) -> Response:
     image = s.extra(tag)
@@ -112,14 +118,14 @@ def get_extra_image(
 
 
 @router.get('/dzi/{fname:path}.dzi')  # /dzi/slide-1.svs -> JSON
-def get_dzi_header(s: Annotated[Slide, Depends(_get_slide)]) -> dict:
+def get_dzi_header(s: Annotated[Slide, Depends(get_slide)]) -> dict:
     return dzi.head(s)
 
 
 # GET /dzi/slide-1.svs_files/0/1_2.jpeg
 @router.get('/dzi/{fname:path}_files/{level}/{col}_{row}.jpeg')
 def get_image_tile(
-    s: Annotated[Slide, Depends(_get_slide)],
+    s: Annotated[Slide, Depends(get_slide)],
     *,
     level: int,
     col: int,
