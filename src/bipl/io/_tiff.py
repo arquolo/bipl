@@ -19,7 +19,7 @@ from functools import partial
 from itertools import chain, product
 from math import gcd
 from threading import Lock
-from typing import Any, Self, assert_never
+from typing import Any, Self, cast
 
 import cv2
 import imagecodecs
@@ -180,7 +180,7 @@ class _Tag(Enum):
 class _ImageFileDirectory(dict[_Tag, Any]):
     def __init__(self, tags: dict[_Tag, Any], index: int) -> None:
         # Use strong types
-        for k, t in [
+        tab: list[tuple[_Tag, Callable[[Any], Any]]] = [
             (_Tag.COLORSPACE, _ColorSpace),
             (_Tag.ORIENTATION, _Orientation),
             (_Tag.PLANAR, _Planarity),
@@ -191,7 +191,8 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             (_Tag.PREDICTOR, _unpredictors.get),
             (_Tag.REF_BLACK_WHITE, lambda x: x.reshape(3, 2)),
             (_Tag.ICC_PROFILE, Icc),
-        ]:
+        ]
+        for k, t in tab:
             if (v := tags.get(k)) is not None:
                 tags[k] = t(v)
 
@@ -308,8 +309,8 @@ class _ImageFileDirectory(dict[_Tag, Any]):
                     skipbits = self.get(_Tag.BITS_SKIP_POS, 7)
                     horzbits = self.get(_Tag.BITS_HORZ_SUB, 2)
                     vertbits = self.get(_Tag.BITS_VERT_SUB, 2)
-                case _ as unreachable:
-                    assert_never(unreachable)
+                case _:
+                    raise AssertionError('EER compression is invalid')
 
             return partial(
                 imagecodecs.eer_decode,
@@ -699,7 +700,7 @@ class _BaseImage(PartMixin, ChainedImage):
         vbox_sizes = vboxes @ [-1, 1]
 
         # (n), drop empty "valid" boxes
-        mask = vbox_sizes.all(-1)
+        mask = cast('npt.NDArray[np.bool_]', vbox_sizes.all(-1))
         [box_ids] = mask.nonzero()
         mins_, box_sizes, vboxes = mins_[mask], box_sizes[mask], vboxes[mask]
 

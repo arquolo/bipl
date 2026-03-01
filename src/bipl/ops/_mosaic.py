@@ -70,7 +70,7 @@ class Mosaic:
     step: int
     overlap: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.overlap < 0:
             raise ValueError(
                 f'overlap should be non-negative, got: {self.overlap}'
@@ -455,6 +455,7 @@ class _ArrayTiles(Tiles):
         # Though we hope that data don't use index wrapping i.e. `index % size`
         locs = self._drop_overlaps(self.locs)
         ilocs = self._ilocs(locs)
+        parts: Iterator[Tile]
         if isinstance(self.data, HasPartsAbc):
             ids = [i[0] for i in ilocs]
             boxes = [i[1:] for i in ilocs]

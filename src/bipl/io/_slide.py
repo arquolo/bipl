@@ -174,15 +174,23 @@ class Slide(PartMixin):
         )
 
     def icc(self) -> 'Slide':
-        changes = {}
-        if icc_0 := self.levels[0].icc:
-            changes['levels'] = tuple(il.apply(icc_0) for il in self.levels)
-        if any(e.icc for e in self.extras.values()):
-            changes['extras'] = {
-                t: e.apply(e.icc) if e.icc else e
-                for t, e in self.extras.items()
-            }
-        return replace(self, **changes) if changes else self
+        levels = (
+            tuple(il.apply(icc_0) for il in self.levels)
+            if (icc_0 := self.levels[0].icc)
+            else ()
+        )
+        extras = (
+            {t: e.apply(e.icc) if e.icc else e for t, e in self.extras.items()}
+            if any(e.icc for e in self.extras.values())
+            else {}
+        )
+        if levels and extras:
+            return replace(self, levels=levels, extras=extras)
+        if levels:
+            return replace(self, levels=levels)
+        if extras:
+            return replace(self, extras=extras)
+        return self
 
     def norm(
         self,

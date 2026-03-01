@@ -118,6 +118,7 @@ class _RemoteIO:
             )
 
     async def _get_block(self, start: int, stop: int) -> bytes:
+        # `stream` is used here only to check status before content arrives
         async with (
             self._semlk,
             self._client.stream(
@@ -144,7 +145,7 @@ def _get_await_n_client() -> tuple[_Awaiter, httpx.AsyncClient]:
     def await_[R](aw: Coroutine[Any, Any, R]) -> R:
         return asyncio.run_coroutine_threadsafe(aw, loop).result()
 
-    aclient = httpx.AsyncClient(http1=False, http2=True, follow_redirects=True)
+    aclient = httpx.AsyncClient(http2=True, follow_redirects=True)
     await_(aclient.__aenter__())
     atexit.register(await_, aclient.__aexit__(None, None, None))
 

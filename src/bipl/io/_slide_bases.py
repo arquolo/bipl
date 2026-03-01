@@ -170,7 +170,6 @@ class ImageLevel(Image):
         a = self.part(y_loc, x_loc)
         return a[:, :, c_lo:c_hi]
 
-    @final
     def numpy(self) -> np.ndarray:
         """Retrieve whole image as array"""
         return self[:, :]

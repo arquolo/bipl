@@ -29,6 +29,7 @@ from ctypes import (
 )
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Any
 
 import cv2
 import numpy as np
@@ -82,7 +83,7 @@ if _version_bytes := OSD.openslide_get_version():
     _OSD_4X = _VERSION >= Version('4.0')  # noqa: SIM300
 
 
-def _init_4x_icc():
+def _init_4x_icc() -> None:
     if not _OSD_4X:
         return
     OSD.openslide_get_icc_profile_size.argtypes = [sptr]
@@ -101,7 +102,7 @@ def _init_4x_icc():
     ]
 
 
-def _init_4x_cache():
+def _init_4x_cache() -> Any | None:
     if not _OSD_4X:
         return None
     OSD.openslide_cache_create.argtypes = [c_uint64]
