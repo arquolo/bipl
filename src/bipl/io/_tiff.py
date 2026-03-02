@@ -77,7 +77,7 @@ def nv12_to_rgb(x: _U8) -> _U8:
     cb_cr = hw6[:, :, 4:]
 
     r = cv2.cvtColorTwoPlane(y, cb_cr, cv2.COLOR_YUV2RGB_NV12)
-    return np.asarray(r, 'u1')
+    return np.asarray(r, 'B')
 
 
 class _Planarity(Enum):
@@ -211,12 +211,12 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         self.subsampling = (1, 1)
 
         # TODO: use this in YCbCr conversion
-        self.gray = np.array([], 'f4')  # Luma coefficients
+        self.gray = np.array([], 'f')  # Luma coefficients
         self.yuv_centered = True
-        self.yuv_bw = np.array([], 'f4')  # BW pairs, per channel
+        self.yuv_bw = np.array([], 'f')  # BW pairs, per channel
 
         if self[_Tag.COLORSPACE] is _ColorSpace.YCBCR:
-            self.gray = np.array([0.299, 0.587, 0.114], 'f4')
+            self.gray = np.array([0.299, 0.587, 0.114], 'f')
             self.gray = self.get(_Tag.YUV_COEFFICIENTS, self.gray)
 
             # YCbCr subsampling H/W, i.e:
@@ -337,10 +337,10 @@ class _ImageFileDirectory(dict[_Tag, Any]):
 
     def _bg_color(self, meta: dict) -> _U8:
         if c := meta.get('ScanWhitePoint'):
-            return np.array(int(c), 'u1')
+            return np.array(int(c), 'B')
 
         bg_hex: bytes = self.get(_Tag.BACKGROUND_COLOR, b'FF')
-        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'u1').copy()
+        return np.frombuffer(bytes.fromhex(bg_hex.decode()), 'B').copy()
 
     def vendor_props(self, vendor: str) -> tuple[str, dict[str, str]] | None:
         description = self.get(_Tag.DESCRIPTION, '')
@@ -419,7 +419,7 @@ class _LambdaDecoder:
             buf = self.decompress(buf)
 
         h, w, c = self.shape
-        arr = np.frombuffer(buf, 'u1')
+        arr = np.frombuffer(buf, 'B')
         arr = arr[: h * w * c].reshape(-1, w, c)
 
         if self.unpredict:
@@ -431,7 +431,7 @@ class _LambdaDecoder:
 
 
 def _jetraw_decode(buf: bytes, *, shape: Shape) -> _U8:
-    out = np.zeros(shape, 'u2')
+    out = np.zeros(shape, 'H')
     imagecodecs.jetraw_decode(buf, out=out.ravel())
     return out
 
@@ -593,7 +593,7 @@ class _BaseImage(PartMixin, ChainedImage):
         n = len(locs)
 
         # (n yx lo/hi)
-        boxes = np.asarray(locs, 'i4')
+        boxes = np.asarray(locs, 'i')
         th, tw, spp = self.tile_shape
 
         # (n yxc)
@@ -1035,20 +1035,20 @@ class _CacheZYXC:
 
 
 _DTYPES: dict[int, np.dtype] = {
-    1: np.dtype('u1'),
-    2: np.dtype('u1'),  # Null-terminated ascii string
-    3: np.dtype('u2'),
-    4: np.dtype('u4'),
-    5: np.dtype('2u4'),
-    6: np.dtype('i1'),
-    7: np.dtype('u1'),  # Undefined
-    8: np.dtype('i2'),
-    9: np.dtype('i4'),
-    10: np.dtype('2i4'),
-    11: np.dtype('f4'),
-    12: np.dtype('f8'),
-    16: np.dtype('u8'),
+    1: np.dtype('B'),  # u1
+    2: np.dtype('B'),  # u1, Null-terminated ascii string
+    3: np.dtype('H'),  # u2
+    4: np.dtype('I'),  # u4
+    5: np.dtype('2I'),  # 2u4
+    6: np.dtype('b'),  # i1
+    7: np.dtype('B'),  # u1, Undefined
+    8: np.dtype('h'),  # i2
+    9: np.dtype('i'),  # i4
+    10: np.dtype('2i'),  # 2i4
+    11: np.dtype('f'),  # f4
+    12: np.dtype('d'),  # f8
+    16: np.dtype('Q'),  # u8
 }
 
-_DTYPES_A = np.array([*_DTYPES], 'u2')
-_TAG_NAMES_A = np.array([*_Tag._value2member_map_], 'u2')
+_DTYPES_A = np.array([*_DTYPES], 'H')
+_TAG_NAMES_A = np.array([*_Tag._value2member_map_], 'H')

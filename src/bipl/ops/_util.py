@@ -28,16 +28,16 @@ def probs_to_rgb_heatmap(prob: np.ndarray) -> np.ndarray:
         raise ValueError(f'prob should be 3d, got: {prob.shape}')
     h, w, c = prob.shape
     if not prob.size:
-        return np.empty((h, w, 3), dtype='u1')
+        return np.empty((h, w, 3), dtype='B')
 
-    hue = prob.argmax(-1).astype('u1')  # NOTE: valid only for simple Indexer
+    hue = prob.argmax(-1).astype('B')  # NOTE: valid only for simple Indexer
     value = prob.max(-1)
-    if value.dtype != 'u1':
+    if value.dtype != 'B':
         value *= 255
-        value = value.round().astype('u1')
+        value = value.round().astype('B')
 
-    hue_lut = np.zeros(256, 'u1')
-    hue_lut[:c] = np.linspace(0, 127, c, endpoint=False, dtype='u1')
+    hue_lut = np.zeros(256, 'B')
+    hue_lut[:c] = np.linspace(0, 127, c, endpoint=False, dtype='B')
     hsv = cv2.merge(
         [
             cv2.LUT(hue, hue_lut),
@@ -53,10 +53,10 @@ def get_trapz(step: int, overlap: int) -> np.ndarray:
     if overlap == 0:
         raise ValueError('not applicable for overlap 0')
 
-    ramp = np.arange(1, overlap + 1).astype('f4')
+    ramp = np.arange(1, overlap + 1).astype('f')
     ramp /= overlap + 1
 
-    r = np.empty(step + overlap, dtype='f4')
+    r = np.empty(step + overlap, dtype='f')
     r[:overlap] = ramp
     r[overlap:step] = 1
     r[step:] = ramp[::-1]
@@ -224,12 +224,12 @@ def rescale_crop(
     if scale == 1:
         return padslice(a, *loc)
 
-    box = np.array(loc, 'i4')  # (y/x, start/stop)
+    box = np.array(loc, 'i')  # (y/x, start/stop)
     h, w = (box[:, 1] - box[:, 0]).tolist()
     if not h or not w:  # 0-size output
         return np.empty((h, w, *a.shape[2:]), a.dtype)
 
-    lo_f, hi_f = np.multiply(box, scale, dtype='f4').T
+    lo_f, hi_f = np.multiply(box, scale, dtype='f').T
 
     loc = tuple((floor(lo_), ceil(hi_)) for lo_, hi_ in zip(lo_f, hi_f))
     if not env.BIPL_SUBPIX:
@@ -254,7 +254,7 @@ def rescale_crop(
     dy, dx = (lo_ - lo + (scale - 1) / 2 for lo_, (lo, _) in zip(lo_f, loc))
     r = cv2.warpAffine(
         r,
-        np.array([[scale, 0, dx], [0, scale, dy]], 'f4'),
+        np.array([[scale, 0, dx], [0, scale, dy]], 'f'),
         (w, h),
         flags=interpolation | cv2.WARP_INVERSE_MAP,
         borderMode=cv2.BORDER_CONSTANT,

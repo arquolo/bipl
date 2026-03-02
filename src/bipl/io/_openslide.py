@@ -128,7 +128,7 @@ def _ntas_to_iter(null_terminated_array_of_strings) -> Iterator[bytes]:
         i += 1
 
 
-_LUT_CA = (np.outer(np.arange(256), np.arange(256)) // 255).astype('u1')
+_LUT_CA = (np.outer(np.arange(256), np.arange(256)) // 255).astype('B')
 
 
 def _mbgra_to_rgb(bgra: np.ndarray, rgb_base: np.ndarray) -> np.ndarray:
@@ -161,7 +161,7 @@ class _Image(Image):
     osd: 'Openslide'
 
     def numpy(self) -> np.ndarray:
-        bgra = np.empty((*self.shape[:2], 4), 'u1')
+        bgra = np.empty((*self.shape[:2], 4), 'B')
         OSD.openslide_read_associated_image(
             self.osd.ptr, self.name, c_void_p(bgra.ctypes.data)
         )
@@ -182,7 +182,7 @@ class _Image(Image):
         if not size:
             return None
 
-        buf = np.empty(size, 'u1')
+        buf = np.empty(size, 'B')
         OSD.openslide_read_associated_image_icc_profile(
             self.osd.ptr, self.name, c_void_p(buf.ctypes.data)
         )
@@ -202,7 +202,7 @@ class _Level(ImageLevel):
         if y0 == y1 or x0 == x1:  # Patch is outside slide
             return np.broadcast_to(self.osd.bg_color, (*shape, 3))
 
-        bgra = np.empty((y1 - y0, x1 - x0, 4), dtype='u1')
+        bgra = np.empty((y1 - y0, x1 - x0, 4), dtype='B')
         OSD.openslide_read_region(
             self.osd.ptr,
             c_void_p(bgra.ctypes.data),
@@ -240,7 +240,7 @@ class Openslide(Driver):
         self.osd_meta: dict = self.meta.get('openslide', {})
 
         bg_hex = self.osd_meta.get('background-color', 'FFFFFF')
-        self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'u1')
+        self.bg_color: np.ndarray = np.frombuffer(bytes.fromhex(bg_hex), 'B')
 
     def get_mpp(self) -> float | None:
         mpp = (self.osd_meta.get(f'mpp-{t}') for t in ('y', 'x'))
@@ -328,6 +328,6 @@ class Openslide(Driver):
         if not size:
             return None
 
-        buf = np.empty(size, 'u1')
+        buf = np.empty(size, 'B')
         OSD.openslide_read_icc_profile(self.ptr, c_void_p(buf.ctypes.data))
         return Icc(buf.tobytes())

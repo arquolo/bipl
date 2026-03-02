@@ -60,7 +60,7 @@ class _Level(ImageLevel):
 
         h, w = y1 - y0, x1 - x0
         c = self.g.num_channels
-        chw = np.empty((c, h, w), 'u1')
+        chw = np.empty((c, h, w), 'B')
 
         with self.g.lock:
             for b, hw in zip(self.bands, chw[:, None, :, :]):
@@ -89,12 +89,12 @@ class Gdal(Driver):
             self.ds.GetRasterBand(i + 1) for i in range(self.num_channels)
         )
         self.dtype = np.dtype(gdal_array.flip_code(self._bands[0].DataType))
-        if self.dtype != 'u1':
+        if self.dtype != 'B':
             raise ValueError(f'Unsupported dtype: {self.dtype}')
 
         self.meta = self.ds.GetMetadata().copy()
 
-        self.bg_color = np.full(3, 255, 'u1')  # TODO: parse tags
+        self.bg_color = np.full(3, 255, 'B')  # TODO: parse tags
         self.lock = Lock()
 
     def __repr__(self) -> str:

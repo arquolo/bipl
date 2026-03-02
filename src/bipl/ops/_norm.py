@@ -23,9 +23,9 @@ class LumaScaler:
         luma95 = np.percentile(gray, 95)
 
         if luma95 <= LUT_THRESHOLD:
-            lut = np.arange(256).astype('f4')
+            lut = np.arange(256).astype('f')
             lut *= LUMA_MAX / luma95
-            self.lut = around(lut.clip(0, 255), 'u1')
+            self.lut = around(lut.clip(0, 255), 'B')
         else:
             self.lut = None
 
@@ -65,12 +65,12 @@ class Normalizer:
 
         if self.weight < 1:
             cdf *= self.weight
-            cdf += np.linspace(0, 1 - self.weight, 256, dtype='f4')
+            cdf += np.linspace(0, 1 - self.weight, 256, dtype='f')
 
-        return around(cdf * 255, 'u1')
+        return around(cdf * 255, 'B')
 
     def _unsharp_cdf(self, lab: np.ndarray) -> np.ndarray:
-        f4 = lab.astype('f4')
+        f4 = lab.astype('f')
         h, w = f4.shape[:2]
 
         # 256 total value counts
@@ -88,7 +88,7 @@ class Normalizer:
             case 'Lab':
                 f4 *= [1 / 255, 1 / 100, 1 / 100]
 
-        kern = np.array([[1, 2, 1], [2, -12, 2], [1, 2, 1]], 'f4') / 16
+        kern = np.array([[1, 2, 1], [2, -12, 2], [1, 2, 1]], 'f') / 16
         var = cv2.filter2D(f4, -1, kern, borderType=cv2.BORDER_REPLICATE)
         var = var.reshape(h, w, -1)
         var = np.square(var).sum(-1).ravel()  # L2, (h w)
@@ -98,7 +98,7 @@ class Normalizer:
         m = counts > 0
         counts_nz = counts[m]
         sep = np.r_[0, counts_nz[:-1]].cumsum()
-        df = np.zeros(256, 'f4')
+        df = np.zeros(256, 'f')
         df[m] = np.add.reduceat(var, sep) / counts_nz  # sum(E^2) -> mean(E^2)
         df **= self.r / 2  # sqrt(mean(E^2)) ^ r
         df /= df.sum()
@@ -134,7 +134,7 @@ class Normalizer:
 
 
 def _make_cdf(pdf: np.ndarray) -> np.ndarray:
-    cdf = np.ma.masked_equal(pdf.cumsum(), 0).astype('f4')
+    cdf = np.ma.masked_equal(pdf.cumsum(), 0).astype('f')
     cdf -= cdf.min()
     cdf /= cdf.max()
     return cdf.filled(0)
@@ -144,7 +144,7 @@ def _minmax_cdf(lab: np.ndarray) -> np.ndarray:
     lstar = lab[:, :, 0]  # (h w)
     lo, hi = int(lstar.min()), int(lstar.max())  # Don't overflow
     return np.r_[
-        np.zeros(lo, dtype='f4'),
-        np.linspace(0, 1, hi - lo + 1, dtype='f4'),
-        np.ones(255 - hi, 'f4'),
+        np.zeros(lo, dtype='f'),
+        np.linspace(0, 1, hi - lo + 1, dtype='f'),
+        np.ones(255 - hi, 'f'),
     ]

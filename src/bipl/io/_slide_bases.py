@@ -233,18 +233,18 @@ class ProxyLevel(PartMixin, ImageLevel):
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
     ) -> Iterator[Patch]:
         scale = 1 / self.scale
-        o_locs = np.asarray(locs, 'i4')  # (n yx lo/hi)
+        o_locs = np.asarray(locs, 'i')  # (n yx lo/hi)
         n = o_locs.shape[0]
 
         i_locs_f = o_locs * scale
         i_locs = np.stack(  # (n yx lo/hi)
-            [afloor(i_locs_f[:, :, 0], 'i4'), aceil(i_locs_f[:, :, 1], 'i4')],
+            [afloor(i_locs_f[:, :, 0], 'i'), aceil(i_locs_f[:, :, 1], 'i')],
             -1,
         )
         sizes = o_locs @ [-1, 1]  # (n yx)
 
         # Transformation matrix, (n xy xyc)
-        mats = np.zeros((n, 2, 3), 'f4')
+        mats = np.zeros((n, 2, 3), 'f')
         mats[:, 0, 0] = scale
         mats[:, 1, 1] = scale
         mats[:, :, 2] = (
@@ -294,7 +294,7 @@ class TiledProxyLevel(PartMixin, ImageLevel):
     def _parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
     ) -> Iterator[np.ndarray]:
-        locs_a = np.asarray(locs, 'i4')  # (n yx lo/hi)
+        locs_a = np.asarray(locs, 'i')  # (n yx lo/hi)
         s_locs = locs_a * self.downsample  # (n yx lo/hi)
         r_shapes = locs_a @ [-1, 1]  # (n yx)
         _, _, c = self.shape

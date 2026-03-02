@@ -392,7 +392,7 @@ class _ArrayTiles(Tiles):
         mask = np.where(mask, np.uint8(255), np.uint8(0))
 
         if half_tile := ceil(self.m.tile_size * scale / 2):
-            kernel = np.ones((3, 3), dtype='u1')
+            kernel = np.ones((3, 3), dtype='B')
             mask = cv2.dilate(mask, kernel, iterations=half_tile)
 
         # Align mask & cells centers
