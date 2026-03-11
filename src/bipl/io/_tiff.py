@@ -179,20 +179,7 @@ class _Tag(Enum):
 
 class _ImageFileDirectory(dict[_Tag, Any]):
     def __init__(self, tags: dict[_Tag, Any], index: int) -> None:
-        # Use strong types
-        tab: list[tuple[_Tag, Callable[[Any], Any]]] = [
-            (_Tag.COLORSPACE, _ColorSpace),
-            (_Tag.ORIENTATION, _Orientation),
-            (_Tag.PLANAR, _Planarity),
-            (
-                _Tag.DATETIME,
-                lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S'),
-            ),
-            (_Tag.PREDICTOR, _unpredictors.get),
-            (_Tag.REF_BLACK_WHITE, lambda x: x.reshape(3, 2)),
-            (_Tag.ICC_PROFILE, Icc),
-        ]
-        for k, t in tab:
+        for k, t in _tag_converters.items():
             if (v := tags.get(k)) is not None:
                 tags[k] = t(v)
 
@@ -276,12 +263,11 @@ class _ImageFileDirectory(dict[_Tag, Any]):
 
     def get_decoder(self) -> Callable[[bytes], _U8]:
         compression = self[_Tag.COMPRESSION]
-        try:
-            decompress = _decompressors[compression]
-        except KeyError:
+        decompress = _decompressors.get(compression, object)
+        if decompress is object:
             raise ValueError(
                 f'IFD: {self.index}: Unknown compression {compression}'
-            ) from None
+            )
 
         unpredict: Callable | None = self.get(_Tag.PREDICTOR)
 
@@ -300,11 +286,12 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             )
 
         if decompress == imagecodecs.eer_decode:
+            horzbits = vertbits = 2
             match compression:
                 case _tiff_cmp.EER_V0:
-                    skipbits, horzbits, vertbits = 8, 2, 2
+                    skipbits = 8
                 case _tiff_cmp.EER_V1:
-                    skipbits, horzbits, vertbits = 7, 2, 2
+                    skipbits = 7
                 case _tiff_cmp.EER_V2:
                     skipbits = self.get(_Tag.BITS_SKIP_POS, 7)
                     horzbits = self.get(_Tag.BITS_HORZ_SUB, 2)
@@ -313,7 +300,7 @@ class _ImageFileDirectory(dict[_Tag, Any]):
                     raise AssertionError('EER compression is invalid')
 
             return partial(
-                imagecodecs.eer_decode,
+                decompress,
                 shape=(self.unit_shape[0], self.unit_shape[1]),
                 skipbits=skipbits,
                 horzbits=horzbits,
@@ -322,7 +309,7 @@ class _ImageFileDirectory(dict[_Tag, Any]):
             )
 
         if decompress is _jetraw_decode:
-            return partial(_jetraw_decode, shape=self.unit_shape)
+            return partial(decompress, shape=self.unit_shape)
 
         if decompress in {
             imagecodecs.jpeg2k_decode,
@@ -480,7 +467,6 @@ for _decomp, _codec_ids in _decomp_to_ids.items():
         assert _codec_id not in _decompressors, f'Duplicates: {_decomp_to_ids}'
         _decompressors[_codec_id] = _decomp
 
-
 _unpredictors: dict[int, Callable] = {
     2: imagecodecs.delta_decode,
     3: imagecodecs.floatpred_decode,
@@ -488,6 +474,16 @@ _unpredictors: dict[int, Callable] = {
     34893: partial(imagecodecs.delta_decode, dist=4),
     34894: partial(imagecodecs.floatpred_decode, dist=2),
     34895: partial(imagecodecs.floatpred_decode, dist=4),
+}
+# Use strong types
+_tag_converters: dict[_Tag, Callable[[Any], Any]] = {
+    _Tag.COLORSPACE: _ColorSpace,
+    _Tag.ORIENTATION: _Orientation,
+    _Tag.PLANAR: _Planarity,
+    _Tag.DATETIME: lambda x: datetime.strptime(x, '%Y:%m:%d %H:%M:%S'),
+    _Tag.PREDICTOR: _unpredictors.get,
+    _Tag.REF_BLACK_WHITE: lambda x: x.reshape(3, 2),
+    _Tag.ICC_PROFILE: Icc,
 }
 
 
@@ -809,10 +805,9 @@ class Tiff(Driver):
 
     def _iter_ifds(self) -> Iterator[_ImageFileDirectory]:
         header = self._buf.pread(4, 0)
-        try:
-            byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}[header[:2]]
-        except KeyError as exc:
-            raise ValueError(f'not a TIFF file {header!r}') from exc
+        byteorder = {b'II': '<', b'MM': '>', b'EP': '<'}.get(header[:2])
+        if byteorder is None:
+            raise ValueError(f'not a TIFF file {header!r}')
         assert byteorder in ('<', '>')
 
         [version] = struct.unpack(byteorder + 'H', header[2:4])
@@ -895,7 +890,7 @@ class Tiff(Driver):
                 v = v[::2] / v[1::2]
 
             if type_ == 2:  # char
-                v = v.tobytes().removesuffix(b'\0')
+                v = v.tobytes().rstrip(b'\0')
                 try:
                     v = v.decode()
                 except UnicodeDecodeError:
