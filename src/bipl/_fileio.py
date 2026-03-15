@@ -7,7 +7,7 @@ import os
 from collections.abc import Coroutine, Sequence
 from io import BytesIO
 from threading import Thread
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import httpx
 from glow import memoize
@@ -18,6 +18,7 @@ from bipl._types import Span
 from bipl.ops._util import merge_intervals
 
 _URL_ADAPTER = TypeAdapter(HttpUrl)
+R = TypeVar('R')
 
 
 class Paged(Protocol):
@@ -134,7 +135,7 @@ class _RemoteIO:
 
 
 class _Awaiter(Protocol):
-    def __call__[R](self, aw: Coroutine[Any, Any, R]) -> R: ...
+    def __call__(self, aw: Coroutine[Any, Any, R]) -> R: ...
 
 
 @memoize()
@@ -142,7 +143,7 @@ def _get_await_n_client() -> tuple[_Awaiter, httpx.AsyncClient]:
     loop = asyncio.new_event_loop()
     Thread(target=loop.run_forever, daemon=True).start()
 
-    def await_[R](aw: Coroutine[Any, Any, R]) -> R:
+    def await_(aw: Coroutine[Any, Any, R]) -> R:
         return asyncio.run_coroutine_threadsafe(aw, loop).result()
 
     aclient = httpx.AsyncClient(http2=True, follow_redirects=True)
