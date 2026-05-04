@@ -224,10 +224,11 @@ def rescale_crop(
     if scale == 1:
         return padslice(a, *loc)
 
+    a_cs = a.shape[2:]
     box = np.array(loc, 'i')  # (y/x, start/stop)
     h, w = (box[:, 1] - box[:, 0]).tolist()
     if not h or not w:  # 0-size output
-        return np.empty((h, w, *a.shape[2:]), a.dtype)
+        return np.empty((h, w, *a_cs), a.dtype)
 
     lo_f, hi_f = np.multiply(box, scale, dtype='f').T
 
@@ -248,7 +249,7 @@ def rescale_crop(
     )
     r = at(a, *loc)
     if not r.size:  # 0-size tight slice
-        return np.zeros((h, w, *a.shape[2:]), a.dtype)
+        return np.zeros((h, w, *a_cs), a.dtype)
 
     # Resample image crop to destination grid
     dy, dx = (lo_ - lo + (scale - 1) / 2 for lo_, (lo, _) in zip(lo_f, loc))
@@ -259,7 +260,7 @@ def rescale_crop(
         flags=interpolation | cv2.WARP_INVERSE_MAP,
         borderMode=cv2.BORDER_CONSTANT,
     )
-    return keep3d(r)
+    return r[..., None] if r.ndim == 2 and a_cs else r
 
 
 def keep3d(im: np.ndarray) -> np.ndarray:
