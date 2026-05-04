@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<Metadata>
+  <PrescanData
+    SlideIdentifier="Slide 0"
+    SizeImage="1251x3685"
+    PixelsPerUnit="0.047244" Unit="micron"
+    PixelMode="1"
+  >
+    <AOI
+      Index="0"
+      Identifier="AOI0"
+      Valid="1"
+      SizeImage="1251x3685" Rectangle="554,2950+223x422"
+      PixelsPerUnit="0.047244" Unit="micron"
+      PixelMode="1"
+    >
+      <AnchorPointSet
+        SizeAOI="223x422" FrameStep="1280x1280" FrameCountAOI="8x15"
+        OnCenter="0"
+        FocusTime="0"
+        PixelsPerUnit="0.047244" Unit="micron"
+        PixelMode="1"
+      >
+        <AnchorPoint
+          Point="111,210"
+          FrameCoord="3,7"
+          Density="0.5"
+          OnCenter="0"
+          OnHull="0"
+          Locked="0"
+          PixelsPerUnit="0.047244" Unit="micron"
+          PixelMode="1"
+        />
+      </AnchorPointSet>
+    </AOI>
+    <AOI
+      Index="1" Identifier="AOI1"
+      Valid="1"
+      SizeImage="1251x3685" Rectangle="554,2416+223x422"
+      PixelsPerUnit="0.047244" Unit="micron"
+      PixelMode="1"
+    >
+      <AnchorPointSet
+        SizeAOI="223x422" FrameStep="1280x1280" FrameCountAOI="8x15"
+        OnCenter="0"
+        FocusTime="0"
+        PixelsPerUnit="0.047244" Unit="micron"
+        PixelMode="1"
+      >
+        <AnchorPoint
+          Point="111,210" FrameCoord="3,7"
+          Density="0.5"
+          OnCenter="0"
+          OnHull="0"
+          Locked="0"
+          PixelsPerUnit="0.047244" Unit="micron"
+          PixelMode="1"
+        />
+      </AnchorPointSet>
+    </AOI>
+  </PrescanData>
+  <AOIParameters
+    SlideIdentifier="Slide 0"
+    XEnd="1251"
+    YStart="1200"
+    CornerGrayValue="0"
+    AOIApproach="0" AOIRectExtendDim="0"
+    MergeDistance="0"
+    PixelsPerUnit="0.047244" Unit="micron"
+  />
+</Metadata>

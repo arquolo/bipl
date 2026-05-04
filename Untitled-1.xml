@@ -1,0 +1,35 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<Metadata>
+  <iScan
+    Mode="brightfield"
+    UnitNumber="2000400"
+    UserName="Operator"
+    BuildVersion="1.1.0.15854" BuildDate="11/27/2019 11:6:28 AM"
+    ShowLabel="1"
+    LabelBoundary="0"
+    FocusMode="0" FocusQuality="1" ScanMode="1"
+    Anonymization="1"
+
+    ScannerModel="VENTANA DP 200"
+    Magnification="20"
+    Z-layers="1" Z-spacing="1"
+    ScanRes="0.465"
+    ScanWhitePoint="235"
+  >
+    <AOI0 Left="554" Top="735" Right="778" Bottom="313"/>
+    <AOI1 Left="554" Top="1269" Right="778" Bottom="847"/>
+  </iScan>
+  <ProcessingParameters>
+    <Registration
+      Method="None"
+      UseLinearEncoder="1"
+      Radius="0"
+    />
+    <Color TwistRGB="1,0,0,0,1,0,0,0,1" Applied="0"/>
+  </ProcessingParameters>
+</Metadata>
+
+
+iScan/ScanWhitePoint -> bg_color [u8]
+iScan/Magnification -> objective power (unused)
+iScan/ScanRes -> MPP{X,Y}

@@ -227,6 +227,7 @@ class ProxyLevel(PartMixin, ImageLevel):
 
     @property
     def interpolation(self) -> int:
+        # return cv2.INTER_LINEAR if self.scale >= 0.5 else cv2.INTER_AREA
         return cv2.INTER_LINEAR
 
     def parts(

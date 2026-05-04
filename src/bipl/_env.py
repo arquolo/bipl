@@ -37,7 +37,10 @@ class Env(BaseSettings):
     # + Middle-ground in perf.
     # - Shifts image by 1/2 of pixel on each step.
     # TODO: implement [1 3 3 1] filtering
-    BIPL_DOWN: Literal['area', 'box', 'gauss'] = 'gauss'  # Downsampling mode
+    # TODO: drop `BIPL_DOWN`
+    # BIPL_DOWN: Literal['area', 'box', 'gauss'] = 'gauss'  # ! too blurry
+    BIPL_DOWN: Literal['area', 'box', 'gauss'] = 'box'  # * ok
+    # BIPL_DOWN: Literal['area', 'box', 'gauss'] = 'area'  # ? ok
     BIPL_SUBPIX: bool = True  # Subpixel resampling
 
     BIPL_TILED_POOLING: bool = False  # Do tiled pooling

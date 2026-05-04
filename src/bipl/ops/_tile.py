@@ -8,6 +8,7 @@ from functools import partial
 import numpy as np
 import numpy.typing as npt
 
+from bipl._dev import prof
 from bipl._types import NDIndex, NumpyLike, Shape, Tile, Vec
 
 from ._util import crop_to, rescale_crop
@@ -151,6 +152,7 @@ class BlendCropper:
             for iy, ix, m in zip(iys.tolist(), ixs.tolist(), cells[iys, ixs])
         }
 
+    @prof
     def __call__(self, src: Iterable[Tile]) -> Iterator[Tile]:
         """Merge and split tiles."""
         # TODO: relax input/output order
@@ -187,6 +189,7 @@ class BlendCropper:
                 while buf:
                     yield buf.popleft()
                 last_iy = iy  # NOTE: this one locks iteration order
+                # TODO: callbacks instead of iteration? (to relax order)
 
             for op in ops.pop(idx, []):  # full top & left (5)
                 yield from op(tile)

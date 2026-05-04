@@ -1,0 +1,731 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<EncodeInfo Ver="2">
+  <SlideInfo
+    Rack="0"
+    Slot="0"
+    BaseName="00000000-ffe1-0000-0000-deadbeef0000"
+    OutputFileName="/raid/slidescan0.bif"
+  >
+    <ServerDirectory Copy="false"/>
+    <LabelImage ShowLabel="1" LabelBoundary="0"/>
+    <iScan
+      Mode="brightfield"
+      Magnification="20" ScanRes="0.465"
+      UnitNumber="2000400"
+      ScannerModel="VENTANA DP 200"
+      Z-layers="1"
+      Z-spacing="1"
+      UserName="Operator"
+      BuildVersion="1.1.0.15854" BuildDate="11/27/2019 11:6:28 AM"
+      ShowLabel="1"
+      LabelBoundary="0"
+      FocusMode="0" FocusQuality="1"
+      ScanMode="1"
+      ScanWhitePoint="235"
+      Anonymization="1"
+    >
+      <AOI0 Left="554" Top="735" Right="778" Bottom="313" AOIScanned="1"/>
+      <AOI1 Left="554" Top="1269" Right="778" Bottom="847" AOIScanned="1"/>
+    </iScan>
+    <AoiInfo XIMAGESIZE="1280" YIMAGESIZE="1280" NumRows="15" NumCols="8" Pos-X="25237" Pos-Y="14237"/>
+    <AoiInfo XIMAGESIZE="1280" YIMAGESIZE="1280" NumRows="15" NumCols="8" Pos-X="25237" Pos-Y="38557"/>
+  </SlideInfo>
+  <SlideStitchInfo Left="-1" Top="-1" Right="-1" Bottom="-1">
+    <ImageInfo
+      AOIScanned="1" AOIIndex="0"
+      NumRows="15" NumCols="8"
+      Width="1280" Height="1280"
+      Pos-X="25237" Pos-Y="14237"
+    >
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="1"   Tile2="2"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="16"  Tile2="15"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="17"  Tile2="18"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="32"  Tile2="31"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="33"  Tile2="34"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="48"  Tile2="47"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="49"  Tile2="50"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="64"  Tile2="63"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="65"  Tile2="66"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="80"  Tile2="79"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="81"  Tile2="82"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="96"  Tile2="95"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="97"  Tile2="98"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="112" Tile2="111" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="113" Tile2="114" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="2"   Tile2="3"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="15"  Tile2="14"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="18"  Tile2="19"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="31"  Tile2="30"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="34"  Tile2="35"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="47"  Tile2="46"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="50"  Tile2="51"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="63"  Tile2="62"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="66"  Tile2="67"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="79"  Tile2="78"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="82"  Tile2="83"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="95"  Tile2="94"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="98"  Tile2="99"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="111" Tile2="110" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="114" Tile2="115" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="3"   Tile2="4"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="14"  Tile2="13"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="19"  Tile2="20"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="30"  Tile2="29"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="35"  Tile2="36"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="46"  Tile2="45"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="51"  Tile2="52"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="62"  Tile2="61"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="67"  Tile2="68"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="78"  Tile2="77"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="83"  Tile2="84"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="94"  Tile2="93"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="99"  Tile2="100" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="110" Tile2="109" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="115" Tile2="116" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="4"   Tile2="5"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="13"  Tile2="12"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="20"  Tile2="21"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="29"  Tile2="28"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="36"  Tile2="37"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="45"  Tile2="44"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="52"  Tile2="53"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="61"  Tile2="60"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="68"  Tile2="69"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="77"  Tile2="76"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="84"  Tile2="85"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="93"  Tile2="92"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="100" Tile2="101" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="109" Tile2="108" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="116" Tile2="117" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="5"   Tile2="6"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="12"  Tile2="11"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="21"  Tile2="22"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="28"  Tile2="27"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="37"  Tile2="38"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="44"  Tile2="43"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="53"  Tile2="54"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="60"  Tile2="59"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="69"  Tile2="70"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="76"  Tile2="75"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="85"  Tile2="86"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="92"  Tile2="91"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="101" Tile2="102" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="108" Tile2="107" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="117" Tile2="118" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="6"   Tile2="7"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="11"  Tile2="10"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="22"  Tile2="23"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="27"  Tile2="26"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="38"  Tile2="39"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="43"  Tile2="42"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="54"  Tile2="55"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="59"  Tile2="58"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="70"  Tile2="71"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="75"  Tile2="74"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="86"  Tile2="87"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="91"  Tile2="90"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="102" Tile2="103" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="107" Tile2="106" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="118" Tile2="119" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="7"   Tile2="8"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="10"  Tile2="9"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="23"  Tile2="24"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="26"  Tile2="25"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="39"  Tile2="40"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="42"  Tile2="41"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="55"  Tile2="56"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="58"  Tile2="57"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="71"  Tile2="72"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="74"  Tile2="73"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="87"  Tile2="88"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="90"  Tile2="89"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="103" Tile2="104" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="106" Tile2="105" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="119" Tile2="120" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="1"   Tile2="16"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="16"  Tile2="17"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="17"  Tile2="32"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="32"  Tile2="33"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="33"  Tile2="48"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="48"  Tile2="49"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="49"  Tile2="64"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="64"  Tile2="65"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="65"  Tile2="80"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="80"  Tile2="81"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="81"  Tile2="96"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="96"  Tile2="97"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="97"  Tile2="112" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="112" Tile2="113" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="2"   Tile2="15"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="15"  Tile2="18"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="18"  Tile2="31"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="31"  Tile2="34"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="34"  Tile2="47"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="47"  Tile2="50"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="50"  Tile2="63"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="63"  Tile2="66"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="66"  Tile2="79"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="79"  Tile2="82"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="82"  Tile2="95"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="95"  Tile2="98"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="98"  Tile2="111" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="111" Tile2="114" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="3"   Tile2="14"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="14"  Tile2="19"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="19"  Tile2="30"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="30"  Tile2="35"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="35"  Tile2="46"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="46"  Tile2="51"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="51"  Tile2="62"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="62"  Tile2="67"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="67"  Tile2="78"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="78"  Tile2="83"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="83"  Tile2="94"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="94"  Tile2="99"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="99"  Tile2="110" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="110" Tile2="115" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="4"   Tile2="13"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="13"  Tile2="20"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="20"  Tile2="29"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="29"  Tile2="36"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="36"  Tile2="45"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="45"  Tile2="52"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="52"  Tile2="61"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="61"  Tile2="68"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="68"  Tile2="77"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="77"  Tile2="84"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="84"  Tile2="93"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="93"  Tile2="100" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="100" Tile2="109" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="109" Tile2="116" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="5"   Tile2="12"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="12"  Tile2="21"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="21"  Tile2="28"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="28"  Tile2="37"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="37"  Tile2="44"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="44"  Tile2="53"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="53"  Tile2="60"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="60"  Tile2="69"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="69"  Tile2="76"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="76"  Tile2="85"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="85"  Tile2="92"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="92"  Tile2="101" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="101" Tile2="108" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="108" Tile2="117" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="6"   Tile2="11"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="11"  Tile2="22"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="22"  Tile2="27"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="27"  Tile2="38"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="38"  Tile2="43"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="43"  Tile2="54"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="54"  Tile2="59"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="59"  Tile2="70"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="70"  Tile2="75"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="75"  Tile2="86"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="86"  Tile2="91"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="91"  Tile2="102" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="102" Tile2="107" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="107" Tile2="118" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="7"   Tile2="10"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="10"  Tile2="23"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="23"  Tile2="26"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="26"  Tile2="39"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="39"  Tile2="42"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="42"  Tile2="55"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="55"  Tile2="58"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="58"  Tile2="71"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="71"  Tile2="74"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="74"  Tile2="87"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="87"  Tile2="90"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="90"  Tile2="103" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="103" Tile2="106" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="106" Tile2="119" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="8"   Tile2="9"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="9"   Tile2="24"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="24"  Tile2="25"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="25"  Tile2="40"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="40"  Tile2="41"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="41"  Tile2="56"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="56"  Tile2="57"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="57"  Tile2="72"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="72"  Tile2="73"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="73"  Tile2="88"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="88"  Tile2="89"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="89"  Tile2="104" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="104" Tile2="105" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="105" Tile2="120" OverlapX="0"  OverlapY="0"/>
+    </ImageInfo>
+    <ImageInfo
+      AOIScanned="1" AOIIndex="1"
+      NumRows="15" NumCols="8"
+      Width="1280" Height="1280"
+      Pos-X="25237" Pos-Y="38557"
+    >
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="1"   Tile2="2"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="16"  Tile2="15"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="17"  Tile2="18"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="32"  Tile2="31"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="33"  Tile2="34"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="48"  Tile2="47"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="49"  Tile2="50"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="64"  Tile2="63"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="65"  Tile2="66"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="80"  Tile2="79"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="81"  Tile2="82"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="96"  Tile2="95"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="97"  Tile2="98"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="112" Tile2="111" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="113" Tile2="114" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="2"   Tile2="3"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="15"  Tile2="14"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="18"  Tile2="19"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="31"  Tile2="30"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="34"  Tile2="35"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="47"  Tile2="46"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="50"  Tile2="51"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="63"  Tile2="62"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="66"  Tile2="67"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="79"  Tile2="78"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="82"  Tile2="83"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="95"  Tile2="94"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="98"  Tile2="99"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="111" Tile2="110" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="114" Tile2="115" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="3"   Tile2="4"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="14"  Tile2="13"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="19"  Tile2="20"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="30"  Tile2="29"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="35"  Tile2="36"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="46"  Tile2="45"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="51"  Tile2="52"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="62"  Tile2="61"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="67"  Tile2="68"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="78"  Tile2="77"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="83"  Tile2="84"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="94"  Tile2="93"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="99"  Tile2="100" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="110" Tile2="109" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="115" Tile2="116" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="4"   Tile2="5"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="13"  Tile2="12"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="20"  Tile2="21"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="29"  Tile2="28"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="36"  Tile2="37"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="45"  Tile2="44"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="52"  Tile2="53"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="61"  Tile2="60"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="68"  Tile2="69"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="77"  Tile2="76"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="84"  Tile2="85"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="93"  Tile2="92"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="100" Tile2="101" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="109" Tile2="108" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="116" Tile2="117" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="5"   Tile2="6"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="12"  Tile2="11"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="21"  Tile2="22"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="28"  Tile2="27"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="37"  Tile2="38"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="44"  Tile2="43"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="53"  Tile2="54"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="60"  Tile2="59"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="69"  Tile2="70"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="76"  Tile2="75"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="85"  Tile2="86"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="92"  Tile2="91"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="101" Tile2="102" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="108" Tile2="107" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="117" Tile2="118" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="6"   Tile2="7"   OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="11"  Tile2="10"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="22"  Tile2="23"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="27"  Tile2="26"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="38"  Tile2="39"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="43"  Tile2="42"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="54"  Tile2="55"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="59"  Tile2="58"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="70"  Tile2="71"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="75"  Tile2="74"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="86"  Tile2="87"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="91"  Tile2="90"  OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="102" Tile2="103" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="107" Tile2="106" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="118" Tile2="119" OverlapX="24" OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="7"   Tile2="8"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="10"  Tile2="9"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="23"  Tile2="24"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="26"  Tile2="25"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="39"  Tile2="40"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="42"  Tile2="41"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="55"  Tile2="56"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="58"  Tile2="57"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="71"  Tile2="72"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="74"  Tile2="73"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="87"  Tile2="88"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="90"  Tile2="89"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="103" Tile2="104" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="106" Tile2="105" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="LEFT" Tile1="119" Tile2="120" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="1"   Tile2="16"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="16"  Tile2="17"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="17"  Tile2="32"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="32"  Tile2="33"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="33"  Tile2="48"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="48"  Tile2="49"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="49"  Tile2="64"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="64"  Tile2="65"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="65"  Tile2="80"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="80"  Tile2="81"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="81"  Tile2="96"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="96"  Tile2="97"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="97"  Tile2="112" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="112" Tile2="113" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="2"   Tile2="15"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="15"  Tile2="18"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="18"  Tile2="31"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="31"  Tile2="34"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="34"  Tile2="47"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="47"  Tile2="50"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="50"  Tile2="63"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="63"  Tile2="66"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="66"  Tile2="79"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="79"  Tile2="82"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="82"  Tile2="95"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="95"  Tile2="98"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="98"  Tile2="111" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="111" Tile2="114" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="3"   Tile2="14"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="14"  Tile2="19"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="19"  Tile2="30"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="30"  Tile2="35"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="35"  Tile2="46"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="46"  Tile2="51"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="51"  Tile2="62"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="62"  Tile2="67"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="67"  Tile2="78"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="78"  Tile2="83"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="83"  Tile2="94"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="94"  Tile2="99"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="99"  Tile2="110" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="110" Tile2="115" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="4"   Tile2="13"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="13"  Tile2="20"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="20"  Tile2="29"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="29"  Tile2="36"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="36"  Tile2="45"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="45"  Tile2="52"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="52"  Tile2="61"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="61"  Tile2="68"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="68"  Tile2="77"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="77"  Tile2="84"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="84"  Tile2="93"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="93"  Tile2="100" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="100" Tile2="109" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="109" Tile2="116" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="5"   Tile2="12"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="12"  Tile2="21"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="21"  Tile2="28"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="28"  Tile2="37"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="37"  Tile2="44"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="44"  Tile2="53"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="53"  Tile2="60"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="60"  Tile2="69"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="69"  Tile2="76"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="76"  Tile2="85"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="85"  Tile2="92"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="92"  Tile2="101" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="101" Tile2="108" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="108" Tile2="117" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="6"   Tile2="11"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="11"  Tile2="22"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="22"  Tile2="27"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="27"  Tile2="38"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="38"  Tile2="43"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="43"  Tile2="54"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="54"  Tile2="59"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="59"  Tile2="70"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="70"  Tile2="75"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="75"  Tile2="86"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="86"  Tile2="91"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="91"  Tile2="102" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="102" Tile2="107" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="107" Tile2="118" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="7"   Tile2="10"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="10"  Tile2="23"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="23"  Tile2="26"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="26"  Tile2="39"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="39"  Tile2="42"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="42"  Tile2="55"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="55"  Tile2="58"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="58"  Tile2="71"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="71"  Tile2="74"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="74"  Tile2="87"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="87"  Tile2="90"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="90"  Tile2="103" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="103" Tile2="106" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="106" Tile2="119" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="8"   Tile2="9"   OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="9"   Tile2="24"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="24"  Tile2="25"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="25"  Tile2="40"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="40"  Tile2="41"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="41"  Tile2="56"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="56"  Tile2="57"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="57"  Tile2="72"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="72"  Tile2="73"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="73"  Tile2="88"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="88"  Tile2="89"  OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="89"  Tile2="104" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="104" Tile2="105" OverlapX="0"  OverlapY="0"/>
+      <TileJointInfo FlagJoined="1" Confidence="100" Direction="UP"   Tile1="105" Tile2="120" OverlapX="0"  OverlapY="0"/>
+    </ImageInfo>
+    <FrameInfo AOIScanned="1" AOIIndex="0">
+      <Frame XY="0,0"  Z="0" FocusZ="0"/>
+      <Frame XY="1,0"  Z="0" FocusZ="0"/>
+      <Frame XY="2,0"  Z="0" FocusZ="0"/>
+      <Frame XY="3,0"  Z="0" FocusZ="0"/>
+      <Frame XY="4,0"  Z="0" FocusZ="0"/>
+      <Frame XY="5,0"  Z="0" FocusZ="0"/>
+      <Frame XY="6,0"  Z="0" FocusZ="0"/>
+      <Frame XY="7,0"  Z="0" FocusZ="0"/>
+      <Frame XY="0,1"  Z="0" FocusZ="0"/>
+      <Frame XY="1,1"  Z="0" FocusZ="0"/>
+      <Frame XY="2,1"  Z="0" FocusZ="0"/>
+      <Frame XY="3,1"  Z="0" FocusZ="0"/>
+      <Frame XY="4,1"  Z="0" FocusZ="0"/>
+      <Frame XY="5,1"  Z="0" FocusZ="0"/>
+      <Frame XY="6,1"  Z="0" FocusZ="0"/>
+      <Frame XY="7,1"  Z="0" FocusZ="0"/>
+      <Frame XY="0,2"  Z="0" FocusZ="0"/>
+      <Frame XY="1,2"  Z="0" FocusZ="0"/>
+      <Frame XY="2,2"  Z="0" FocusZ="0"/>
+      <Frame XY="3,2"  Z="0" FocusZ="0"/>
+      <Frame XY="4,2"  Z="0" FocusZ="0"/>
+      <Frame XY="5,2"  Z="0" FocusZ="0"/>
+      <Frame XY="6,2"  Z="0" FocusZ="0"/>
+      <Frame XY="7,2"  Z="0" FocusZ="0"/>
+      <Frame XY="0,3"  Z="0" FocusZ="0"/>
+      <Frame XY="1,3"  Z="0" FocusZ="0"/>
+      <Frame XY="2,3"  Z="0" FocusZ="0"/>
+      <Frame XY="3,3"  Z="0" FocusZ="0"/>
+      <Frame XY="4,3"  Z="0" FocusZ="0"/>
+      <Frame XY="5,3"  Z="0" FocusZ="0"/>
+      <Frame XY="6,3"  Z="0" FocusZ="0"/>
+      <Frame XY="7,3"  Z="0" FocusZ="0"/>
+      <Frame XY="0,4"  Z="0" FocusZ="0"/>
+      <Frame XY="1,4"  Z="0" FocusZ="0"/>
+      <Frame XY="2,4"  Z="0" FocusZ="0"/>
+      <Frame XY="3,4"  Z="0" FocusZ="0"/>
+      <Frame XY="4,4"  Z="0" FocusZ="0"/>
+      <Frame XY="5,4"  Z="0" FocusZ="0"/>
+      <Frame XY="6,4"  Z="0" FocusZ="0"/>
+      <Frame XY="7,4"  Z="0" FocusZ="0"/>
+      <Frame XY="0,5"  Z="0" FocusZ="0"/>
+      <Frame XY="1,5"  Z="0" FocusZ="0"/>
+      <Frame XY="2,5"  Z="0" FocusZ="0"/>
+      <Frame XY="3,5"  Z="0" FocusZ="0"/>
+      <Frame XY="4,5"  Z="0" FocusZ="0"/>
+      <Frame XY="5,5"  Z="0" FocusZ="0"/>
+      <Frame XY="6,5"  Z="0" FocusZ="0"/>
+      <Frame XY="7,5"  Z="0" FocusZ="0"/>
+      <Frame XY="0,6"  Z="0" FocusZ="0"/>
+      <Frame XY="1,6"  Z="0" FocusZ="0"/>
+      <Frame XY="2,6"  Z="0" FocusZ="0"/>
+      <Frame XY="3,6"  Z="0" FocusZ="0"/>
+      <Frame XY="4,6"  Z="0" FocusZ="0"/>
+      <Frame XY="5,6"  Z="0" FocusZ="0"/>
+      <Frame XY="6,6"  Z="0" FocusZ="0"/>
+      <Frame XY="7,6"  Z="0" FocusZ="0"/>
+      <Frame XY="0,7"  Z="0" FocusZ="0"/>
+      <Frame XY="1,7"  Z="0" FocusZ="0"/>
+      <Frame XY="2,7"  Z="0" FocusZ="0"/>
+      <Frame XY="3,7"  Z="0" FocusZ="0"/>
+      <Frame XY="4,7"  Z="0" FocusZ="0"/>
+      <Frame XY="5,7"  Z="0" FocusZ="0"/>
+      <Frame XY="6,7"  Z="0" FocusZ="0"/>
+      <Frame XY="7,7"  Z="0" FocusZ="0"/>
+      <Frame XY="0,8"  Z="0" FocusZ="0"/>
+      <Frame XY="1,8"  Z="0" FocusZ="0"/>
+      <Frame XY="2,8"  Z="0" FocusZ="0"/>
+      <Frame XY="3,8"  Z="0" FocusZ="0"/>
+      <Frame XY="4,8"  Z="0" FocusZ="0"/>
+      <Frame XY="5,8"  Z="0" FocusZ="0"/>
+      <Frame XY="6,8"  Z="0" FocusZ="0"/>
+      <Frame XY="7,8"  Z="0" FocusZ="0"/>
+      <Frame XY="0,9"  Z="0" FocusZ="0"/>
+      <Frame XY="1,9"  Z="0" FocusZ="0"/>
+      <Frame XY="2,9"  Z="0" FocusZ="0"/>
+      <Frame XY="3,9"  Z="0" FocusZ="0"/>
+      <Frame XY="4,9"  Z="0" FocusZ="0"/>
+      <Frame XY="5,9"  Z="0" FocusZ="0"/>
+      <Frame XY="6,9"  Z="0" FocusZ="0"/>
+      <Frame XY="7,9"  Z="0" FocusZ="0"/>
+      <Frame XY="0,10" Z="0" FocusZ="0"/>
+      <Frame XY="1,10" Z="0" FocusZ="0"/>
+      <Frame XY="2,10" Z="0" FocusZ="0"/>
+      <Frame XY="3,10" Z="0" FocusZ="0"/>
+      <Frame XY="4,10" Z="0" FocusZ="0"/>
+      <Frame XY="5,10" Z="0" FocusZ="0"/>
+      <Frame XY="6,10" Z="0" FocusZ="0"/>
+      <Frame XY="7,10" Z="0" FocusZ="0"/>
+      <Frame XY="0,11" Z="0" FocusZ="0"/>
+      <Frame XY="1,11" Z="0" FocusZ="0"/>
+      <Frame XY="2,11" Z="0" FocusZ="0"/>
+      <Frame XY="3,11" Z="0" FocusZ="0"/>
+      <Frame XY="4,11" Z="0" FocusZ="0"/>
+      <Frame XY="5,11" Z="0" FocusZ="0"/>
+      <Frame XY="6,11" Z="0" FocusZ="0"/>
+      <Frame XY="7,11" Z="0" FocusZ="0"/>
+      <Frame XY="0,12" Z="0" FocusZ="0"/>
+      <Frame XY="1,12" Z="0" FocusZ="0"/>
+      <Frame XY="2,12" Z="0" FocusZ="0"/>
+      <Frame XY="3,12" Z="0" FocusZ="0"/>
+      <Frame XY="4,12" Z="0" FocusZ="0"/>
+      <Frame XY="5,12" Z="0" FocusZ="0"/>
+      <Frame XY="6,12" Z="0" FocusZ="0"/>
+      <Frame XY="7,12" Z="0" FocusZ="0"/>
+      <Frame XY="0,13" Z="0" FocusZ="0"/>
+      <Frame XY="1,13" Z="0" FocusZ="0"/>
+      <Frame XY="2,13" Z="0" FocusZ="0"/>
+      <Frame XY="3,13" Z="0" FocusZ="0"/>
+      <Frame XY="4,13" Z="0" FocusZ="0"/>
+      <Frame XY="5,13" Z="0" FocusZ="0"/>
+      <Frame XY="6,13" Z="0" FocusZ="0"/>
+      <Frame XY="7,13" Z="0" FocusZ="0"/>
+      <Frame XY="0,14" Z="0" FocusZ="0"/>
+      <Frame XY="1,14" Z="0" FocusZ="0"/>
+      <Frame XY="2,14" Z="0" FocusZ="0"/>
+      <Frame XY="3,14" Z="0" FocusZ="0"/>
+      <Frame XY="4,14" Z="0" FocusZ="0"/>
+      <Frame XY="5,14" Z="0" FocusZ="0"/>
+      <Frame XY="6,14" Z="0" FocusZ="0"/>
+      <Frame XY="7,14" Z="0" FocusZ="0"/>
+    </FrameInfo>
+    <FrameInfo AOIScanned="1" AOIIndex="1">
+      <Frame XY="0,0"  Z="0" FocusZ="0"/>
+      <Frame XY="1,0"  Z="0" FocusZ="0"/>
+      <Frame XY="2,0"  Z="0" FocusZ="0"/>
+      <Frame XY="3,0"  Z="0" FocusZ="0"/>
+      <Frame XY="4,0"  Z="0" FocusZ="0"/>
+      <Frame XY="5,0"  Z="0" FocusZ="0"/>
+      <Frame XY="6,0"  Z="0" FocusZ="0"/>
+      <Frame XY="7,0"  Z="0" FocusZ="0"/>
+      <Frame XY="0,1"  Z="0" FocusZ="0"/>
+      <Frame XY="1,1"  Z="0" FocusZ="0"/>
+      <Frame XY="2,1"  Z="0" FocusZ="0"/>
+      <Frame XY="3,1"  Z="0" FocusZ="0"/>
+      <Frame XY="4,1"  Z="0" FocusZ="0"/>
+      <Frame XY="5,1"  Z="0" FocusZ="0"/>
+      <Frame XY="6,1"  Z="0" FocusZ="0"/>
+      <Frame XY="7,1"  Z="0" FocusZ="0"/>
+      <Frame XY="0,2"  Z="0" FocusZ="0"/>
+      <Frame XY="1,2"  Z="0" FocusZ="0"/>
+      <Frame XY="2,2"  Z="0" FocusZ="0"/>
+      <Frame XY="3,2"  Z="0" FocusZ="0"/>
+      <Frame XY="4,2"  Z="0" FocusZ="0"/>
+      <Frame XY="5,2"  Z="0" FocusZ="0"/>
+      <Frame XY="6,2"  Z="0" FocusZ="0"/>
+      <Frame XY="7,2"  Z="0" FocusZ="0"/>
+      <Frame XY="0,3"  Z="0" FocusZ="0"/>
+      <Frame XY="1,3"  Z="0" FocusZ="0"/>
+      <Frame XY="2,3"  Z="0" FocusZ="0"/>
+      <Frame XY="3,3"  Z="0" FocusZ="0"/>
+      <Frame XY="4,3"  Z="0" FocusZ="0"/>
+      <Frame XY="5,3"  Z="0" FocusZ="0"/>
+      <Frame XY="6,3"  Z="0" FocusZ="0"/>
+      <Frame XY="7,3"  Z="0" FocusZ="0"/>
+      <Frame XY="0,4"  Z="0" FocusZ="0"/>
+      <Frame XY="1,4"  Z="0" FocusZ="0"/>
+      <Frame XY="2,4"  Z="0" FocusZ="0"/>
+      <Frame XY="3,4"  Z="0" FocusZ="0"/>
+      <Frame XY="4,4"  Z="0" FocusZ="0"/>
+      <Frame XY="5,4"  Z="0" FocusZ="0"/>
+      <Frame XY="6,4"  Z="0" FocusZ="0"/>
+      <Frame XY="7,4"  Z="0" FocusZ="0"/>
+      <Frame XY="0,5"  Z="0" FocusZ="0"/>
+      <Frame XY="1,5"  Z="0" FocusZ="0"/>
+      <Frame XY="2,5"  Z="0" FocusZ="0"/>
+      <Frame XY="3,5"  Z="0" FocusZ="0"/>
+      <Frame XY="4,5"  Z="0" FocusZ="0"/>
+      <Frame XY="5,5"  Z="0" FocusZ="0"/>
+      <Frame XY="6,5"  Z="0" FocusZ="0"/>
+      <Frame XY="7,5"  Z="0" FocusZ="0"/>
+      <Frame XY="0,6"  Z="0" FocusZ="0"/>
+      <Frame XY="1,6"  Z="0" FocusZ="0"/>
+      <Frame XY="2,6"  Z="0" FocusZ="0"/>
+      <Frame XY="3,6"  Z="0" FocusZ="0"/>
+      <Frame XY="4,6"  Z="0" FocusZ="0"/>
+      <Frame XY="5,6"  Z="0" FocusZ="0"/>
+      <Frame XY="6,6"  Z="0" FocusZ="0"/>
+      <Frame XY="7,6"  Z="0" FocusZ="0"/>
+      <Frame XY="0,7"  Z="0" FocusZ="0"/>
+      <Frame XY="1,7"  Z="0" FocusZ="0"/>
+      <Frame XY="2,7"  Z="0" FocusZ="0"/>
+      <Frame XY="3,7"  Z="0" FocusZ="0"/>
+      <Frame XY="4,7"  Z="0" FocusZ="0"/>
+      <Frame XY="5,7"  Z="0" FocusZ="0"/>
+      <Frame XY="6,7"  Z="0" FocusZ="0"/>
+      <Frame XY="7,7"  Z="0" FocusZ="0"/>
+      <Frame XY="0,8"  Z="0" FocusZ="0"/>
+      <Frame XY="1,8"  Z="0" FocusZ="0"/>
+      <Frame XY="2,8"  Z="0" FocusZ="0"/>
+      <Frame XY="3,8"  Z="0" FocusZ="0"/>
+      <Frame XY="4,8"  Z="0" FocusZ="0"/>
+      <Frame XY="5,8"  Z="0" FocusZ="0"/>
+      <Frame XY="6,8"  Z="0" FocusZ="0"/>
+      <Frame XY="7,8"  Z="0" FocusZ="0"/>
+      <Frame XY="0,9"  Z="0" FocusZ="0"/>
+      <Frame XY="1,9"  Z="0" FocusZ="0"/>
+      <Frame XY="2,9"  Z="0" FocusZ="0"/>
+      <Frame XY="3,9"  Z="0" FocusZ="0"/>
+      <Frame XY="4,9"  Z="0" FocusZ="0"/>
+      <Frame XY="5,9"  Z="0" FocusZ="0"/>
+      <Frame XY="6,9"  Z="0" FocusZ="0"/>
+      <Frame XY="7,9"  Z="0" FocusZ="0"/>
+      <Frame XY="0,10" Z="0" FocusZ="0"/>
+      <Frame XY="1,10" Z="0" FocusZ="0"/>
+      <Frame XY="2,10" Z="0" FocusZ="0"/>
+      <Frame XY="3,10" Z="0" FocusZ="0"/>
+      <Frame XY="4,10" Z="0" FocusZ="0"/>
+      <Frame XY="5,10" Z="0" FocusZ="0"/>
+      <Frame XY="6,10" Z="0" FocusZ="0"/>
+      <Frame XY="7,10" Z="0" FocusZ="0"/>
+      <Frame XY="0,11" Z="0" FocusZ="0"/>
+      <Frame XY="1,11" Z="0" FocusZ="0"/>
+      <Frame XY="2,11" Z="0" FocusZ="0"/>
+      <Frame XY="3,11" Z="0" FocusZ="0"/>
+      <Frame XY="4,11" Z="0" FocusZ="0"/>
+      <Frame XY="5,11" Z="0" FocusZ="0"/>
+      <Frame XY="6,11" Z="0" FocusZ="0"/>
+      <Frame XY="7,11" Z="0" FocusZ="0"/>
+      <Frame XY="0,12" Z="0" FocusZ="0"/>
+      <Frame XY="1,12" Z="0" FocusZ="0"/>
+      <Frame XY="2,12" Z="0" FocusZ="0"/>
+      <Frame XY="3,12" Z="0" FocusZ="0"/>
+      <Frame XY="4,12" Z="0" FocusZ="0"/>
+      <Frame XY="5,12" Z="0" FocusZ="0"/>
+      <Frame XY="6,12" Z="0" FocusZ="0"/>
+      <Frame XY="7,12" Z="0" FocusZ="0"/>
+      <Frame XY="0,13" Z="0" FocusZ="0"/>
+      <Frame XY="1,13" Z="0" FocusZ="0"/>
+      <Frame XY="2,13" Z="0" FocusZ="0"/>
+      <Frame XY="3,13" Z="0" FocusZ="0"/>
+      <Frame XY="4,13" Z="0" FocusZ="0"/>
+      <Frame XY="5,13" Z="0" FocusZ="0"/>
+      <Frame XY="6,13" Z="0" FocusZ="0"/>
+      <Frame XY="7,13" Z="0" FocusZ="0"/>
+      <Frame XY="0,14" Z="0" FocusZ="0"/>
+      <Frame XY="1,14" Z="0" FocusZ="0"/>
+      <Frame XY="2,14" Z="0" FocusZ="0"/>
+      <Frame XY="3,14" Z="0" FocusZ="0"/>
+      <Frame XY="4,14" Z="0" FocusZ="0"/>
+      <Frame XY="5,14" Z="0" FocusZ="0"/>
+      <Frame XY="6,14" Z="0" FocusZ="0"/>
+      <Frame XY="7,14" Z="0" FocusZ="0"/>
+    </FrameInfo>
+  </SlideStitchInfo>
+  <AoiOrigin>
+    <AOI0 OriginX="0" OriginY="24320"/>
+    <AOI1 OriginX="0" OriginY="0"/>
+  </AoiOrigin>
+</EncodeInfo>

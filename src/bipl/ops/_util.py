@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 
 from bipl import env
+from bipl._dev import prof
 from bipl._types import NumpyLike, Span, Tile, Vec
 
 
@@ -204,6 +205,7 @@ def get_fusion(
     return r
 
 
+@prof
 def rescale_crop(
     a: NumpyLike, *loc: Span, scale: float = 1, interpolation: int = 0
 ) -> np.ndarray:

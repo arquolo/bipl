@@ -453,10 +453,9 @@ class _ArrayTiles(Tiles):
 
         # De-overlap if we don't know whether `data` has cheap slices
         # Though we hope that data don't use index wrapping i.e. `index % size`
-        locs = self._drop_overlaps(self.locs)
-        ilocs = self._ilocs(locs)
         parts: Iterator[Tile]
         if isinstance(self.data, HasPartsAbc):
+            ilocs = self._ilocs(self.locs)
             ids = [i[0] for i in ilocs]
             boxes = [i[1:] for i in ilocs]
             patches = self.data.parts(boxes, max_workers=self.max_workers)
@@ -465,6 +464,8 @@ class _ArrayTiles(Tiles):
                 for i, p in zip(ids, patches)
             )
         else:
+            locs = self._drop_overlaps(self.locs)
+            ilocs = self._ilocs(locs)
             parts = starmap_n(
                 self._get_tile, ilocs, max_workers=self.max_workers
             )

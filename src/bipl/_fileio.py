@@ -4,6 +4,7 @@ import asyncio
 import atexit
 import mmap
 import os
+import weakref
 from collections.abc import Coroutine, Sequence
 from io import BytesIO
 from threading import Thread
@@ -13,6 +14,7 @@ import httpx
 from glow import memoize
 from pydantic import HttpUrl, TypeAdapter, ValidationError
 
+from bipl._dev import prof
 from bipl._env import env
 from bipl._types import Span
 from bipl.ops._util import merge_intervals
@@ -29,6 +31,9 @@ def fopen(path: str) -> Paged:
         return _RemoteIO(path)
 
     except ValidationError:  # Got local filename
+        if False:
+            return _PooledIO(path)
+
         return _MappedIO(path)
 
 
@@ -48,9 +53,50 @@ class _MappedIO:
     def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return type(self) is type(rhs) and self.m == rhs.m
 
+    @prof
     def pread(self, n: int, start: int, /) -> bytes:
         data = self.m[start : start + n]
+        # print(len(self.m), start, start + n, n, len(data))
         return data
+
+
+class _PooledIO:  # 1 handle per thread
+    __slots__ = ('__weakref__', 'fds', 'path', 'size')
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+        fd = os.open(path, os.O_RDONLY)
+        self.size = os.stat(fd).st_size
+        self.fds = [fd]
+        weakref.finalize(self, _close_fds, self.fds)
+
+    def __hash__(self) -> int:  # Used by _Level.tile:shared_call
+        return hash(self.path)
+
+    def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
+        return type(self) is type(rhs) and self.path == rhs.path
+
+    @prof
+    def pread(self, n: int, start: int, /) -> bytes:
+        try:
+            fd = self.fds.pop()  # atomic stack
+        except IndexError:
+            fd = os.open(self.path, os.O_RDONLY)
+
+        try:
+            s = BytesIO()
+            os.lseek(fd, start, os.SEEK_SET)
+            while (done := s.tell()) < n and (data := os.read(fd, n - done)):
+                s.write(data)
+            return s.getbuffer()
+        finally:
+            self.fds.append(fd)
+
+
+def _close_fds(fds: Sequence[int]) -> None:
+    for fd in fds:
+        os.close(fd)
 
 
 class _RemoteIO:
@@ -75,6 +121,7 @@ class _RemoteIO:
     def __eq__(self, rhs) -> bool:  # Used by _Level.tile:shared_call
         return type(self) is type(rhs) and self.url == rhs.url
 
+    @prof
     def pread(self, n: int, start: int, /) -> bytes:
         bs = env.BIPL_TIFF_BLOCK_SIZE
         stop = start + n
@@ -89,6 +136,7 @@ class _RemoteIO:
         s.seek(head)
         return s.read(n)
 
+    @prof
     async def _get_many(self, spans: Sequence[Span]) -> list[bytes]:
         # `spans` is a list of block ids without duplicates, yet unsorted.
         # Combine spans with common border, and reposition to match them
@@ -117,6 +165,7 @@ class _RemoteIO:
                 f'Remote "{self.url}" does not support Range header'
             )
 
+    @prof
     async def _get_block(self, start: int, stop: int) -> bytes:
         # `stream` is used here only to check status before content arrives
         async with (

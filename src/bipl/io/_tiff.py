@@ -10,7 +10,10 @@ __all__ = ['Tiff']
 
 import struct
 import sys
+import time
 import warnings
+import weakref
+from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -25,8 +28,10 @@ import cv2
 import imagecodecs
 import numpy as np
 import numpy.typing as npt
-from glow import memoize, si_bin, starmap_n
+from glow import memoize, si_bin, sizeof, starmap_n
+from tqdm import tqdm
 
+from bipl._dev import prof
 from bipl._env import env
 from bipl._fileio import Paged, fopen
 from bipl._types import NDIndex, Patch, Shape, Span
@@ -272,6 +277,8 @@ class _ImageFileDirectory(dict[_Tag, Any]):
         unpredict: Callable | None = self.get(_Tag.PREDICTOR)
 
         if decompress is None:  # RAW
+            if _Tag.CZ_LSMINFO in self:
+                tqdm.write('LSM')
             tile_size = np.prod(self.unit_shape)
             self.spans[..., 1] = self.spans[..., 0] + tile_size
             return _LambdaDecoder(None, unpredict, self.unit_shape)
@@ -525,6 +532,12 @@ class _BaseImage(PartMixin, ChainedImage):
             prev_ds, prev = prev.decimate(ds, 1)
             if prev_ds != ds:
                 prev = prev.rescale(prev_ds / ds)
+                # prev = ProxyLevel(
+                #     shape,
+                #     prev.post,
+                #     scale=prev_ds / ds,
+                #     base=replace(prev, post=[]),
+                # )
 
         lv = replace(
             self,
@@ -548,6 +561,7 @@ class _BaseImage(PartMixin, ChainedImage):
         return hash((self.buf, self.shape, self.decimations, self.key))
 
     @memoize(0)  # Thread safety
+    @prof
     def tile(self, *idx: int) -> _U8 | None:
         lo, hi = self.spans[idx].tolist()
         if lo == hi:  # If nothing to read, don't read
@@ -569,11 +583,8 @@ class _BaseImage(PartMixin, ChainedImage):
         im = self.decode(self.buf.pread(hi - lo, lo))
 
         # Resize if level is pooled
-        th, tw = self.tile_shape[:2]
-        if self.decimations == 1:
-            im = cv2.resize(im, (tw, th))
-        elif self.decimations >= 2:
-            im = cv2.resize(im, (tw, th), interpolation=cv2.INTER_AREA)
+        for _ in range(self.decimations):
+            im = cv2.resize(im, None, fx=0.5, fy=0.5)
 
         # Ensure output is HWC, even if C=1
         im = keep3d(im)
@@ -581,6 +592,7 @@ class _BaseImage(PartMixin, ChainedImage):
         self.cache[key] = im
         return self._postprocess(im)
 
+    @prof
     def parts(
         self, locs: Sequence[tuple[Span, ...]], max_workers: int = 0
     ) -> Iterator[Patch]:
@@ -645,8 +657,22 @@ class _BaseImage(PartMixin, ChainedImage):
         else:
             prev_tiles = ((i, None) for i in nulls)
 
+        # ids = tile_to_boxes.keys()
         ids = sorted(ids, key=self.spans[:, :, :, 0].__getitem__)
         tiles = zip(ids, starmap_n(self.tile, ids, max_workers=max_workers))
+
+        q = deque([sizeof(buf)], maxlen=1)
+        weakref.finalize(
+            self,
+            lambda prefix, q, qq, p, pp: tqdm.write(
+                f'{prefix} -> {p} / {pp} -> {q[-1]} / {qq}'
+            ),
+            f'{self.path} [{self.decimations}]{self.shape}',
+            q,
+            si_bin(int(np.prod(self.shape))),
+            len(ids),
+            self.spans[:, :, :, 0].size,
+        )
 
         # Unwrap & build patches
         rois: dict[int, tuple[Span, ...]] = dict(
@@ -665,6 +691,7 @@ class _BaseImage(PartMixin, ChainedImage):
                     a[y0:y1, x1:] = fill
                     a[y1:] = fill
                     buf[i] = out = Patch(out.loc, a)
+                    q.append(max(q[-1], sizeof(buf)))
 
                 out.data[oyx] = fill if tile is None else tile[tyx]
                 counts[i] -= 1
@@ -912,11 +939,12 @@ class Tiff(Driver):
 
     def __len__(self) -> int:
         n = len(self._ifds)
-        if n < 3:
-            raise ValueError(f'Not enough levels (<3): {n}')
+        # if n < 3:
+        #     raise ValueError(f'Not enough levels (<3): {n}')
         return n
 
     def __getitem__(self, index: int) -> Image | None:
+        # TODO: merge parse_ifd & __getitem__
         ifd = self._ifds[index]
         if index == 0:
             head = self._head
@@ -989,24 +1017,45 @@ class Tiff(Driver):
 # ------------------------------- tile caching -------------------------------
 
 
+@dataclass(slots=True, repr=False)
+class _Stat:
+    hits: int = 0
+    accesses: int = 0
+
+    def __repr__(self) -> str:
+        return (
+            f'{type(self).__name__}'
+            f'(hitrate={self.hits / (self.accesses or 1):.1%},'
+            f' accesses={self.accesses})'
+        )
+
+
 class _CacheZYXC:
-    __slots__ = ('items', 'lock', 'used')
+    __slots__ = ('__weakref__', 'items', 'lock', 's', 'stat', 'used')
 
     def __init__(self) -> None:
         self.lock = Lock()
         self.used: int = 0
         self.items: dict[tuple, tuple[int, _U8]] = {}  # IYXC -> (size, buf)
 
+        self.stat: list[tuple[float, int, int]] = []
+        weakref.finalize(self, _cache_finalize, self.stat)
+        self.s = _Stat()
+        weakref.finalize(self, print, self.s)
+
     def __repr__(self) -> str:
         return (
             f'{type(self).__name__}'
-            f'(used={si_bin(self.used)}, items={len(self.items)})'
+            f'(used={si_bin(self.used)}, items={len(self.items)}, s={self.s})'
         )
 
     def __getitem__(self, key: tuple) -> _U8 | None:
         with self.lock:
+            self.s.accesses += 1
             if e := self.items.get(key):
+                self.s.hits += 1
                 return e[1]
+        self.stat.append((time.perf_counter(), *key[-2:]))
         return None
 
     def __setitem__(self, key: tuple, obj: _U8) -> None:
@@ -1027,6 +1076,33 @@ class _CacheZYXC:
             if self.used <= max_size:
                 self.items[key] = (size, obj)
                 self.used += size
+
+
+def _cache_finalize(stat: list[tuple[float, int, int]]) -> None:
+    if not stat:
+        return
+    ab = np.array([(a, b) for _, a, b in stat])  # (n 2)
+    a, b = ab.T
+
+    asc = np.r_[False, a[:-1] < a[1:], False]  # (n+1)
+    [run_edges] = (asc[:-1] != asc[1:]).nonzero()  # (2m)
+    run_lo, run_hi = run_edges.reshape(-1, 2).T  # (m) (m) of ..n
+    blocks = np.r_[0, (b - a).cumsum()]  # (n+1)
+    nbytes = blocks[run_hi + 1] - blocks[run_lo]  # (m)
+    # nbytes = b[run_hi] - a[run_lo]  # (m)
+    nruns = run_hi - run_lo
+    n = nruns.size
+    ilo, imu, ihi = nruns.min(), nruns.mean(), nruns.max()
+    lo, mu, hi = map(si_bin, (nbytes.min(), nbytes.mean(), nbytes.max()))
+
+    r_total = len(ab)
+    ab_uniq, ab_counts = np.unique(ab, axis=0, return_counts=True)
+    nuniq, reps, reps_max = len(ab_uniq), ab_counts.mean(), ab_counts.max()
+    tqdm.write(
+        f'Reads(bytes={n} x {mu} [{lo} .. {hi}],'
+        f' requests={r_total} ({n} x {imu:.1f} [{ilo} .. {ihi}]),'
+        f' uniq={nuniq}, reps={reps:.1f} [1 .. {reps_max}])'
+    )
 
 
 _DTYPES: dict[int, np.dtype] = {

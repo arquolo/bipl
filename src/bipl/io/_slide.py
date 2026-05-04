@@ -14,6 +14,7 @@ import numpy as np
 from glow import memoize
 
 from bipl import _cov, env
+from bipl._dev import prof
 from bipl._types import Patch, Shape, Span, Vec
 from bipl.ops import Normalizer, normalize_loc, rescale_crop
 
@@ -70,7 +71,8 @@ def _load_drivers() -> None:
     for drvname, pat in [  # LIFO, last driver takes priority
         ('gdal', r'^.*\.tiff?$'),
         ('openslide', r'^.*\.(bif|mrxs|ndpi|scn|svs(|slide)|tiff?|vms|vmu)$'),
-        ('tiff', r'^.*\.(bif|ndpi|svs|tiff?|qptiff)$'),
+        # ('tiff', r'^.*\.(bif|ndpi|svs|tiff?|qptiff)$'),
+        ('tiff', r'^((https?|ftp)://.*|.*\.(bif|ndpi|svs|tiff?|qptiff))$'),
         ('gdal', r'^(/vsicurl|(https?|ftp)://).*$'),
         ('raw', r'^.*\.(bmp|png|jpe?g|webp)$'),
     ]:
@@ -84,7 +86,8 @@ _load_drivers()
 # Merge duplicate calls
 # Reuse result if it's already exist, but used by someone else
 # Keep LRU for unused results
-@memoize(env.BIPL_CACHE, policy='lru')
+# @memoize(env.BIPL_CACHE, policy='lru')
+@memoize(0, policy='lru')
 def _cached_open(path: str) -> 'Slide':
     if tps := Driver.find(path):
         errors: list[Exception] = []
@@ -92,6 +95,7 @@ def _cached_open(path: str) -> 'Slide':
             try:
                 return Slide.from_file(path, tp)
             except (ValueError, TypeError) as exc:
+                raise exc from None
                 errors.append(exc)
         raise ExceptionGroup('Cannot open file', errors) from None
 
@@ -154,6 +158,9 @@ class Slide(PartMixin):
                     pass
         extras |= driver.named_items()
 
+        if nulls and not levels:
+            levels += nulls
+
         downsamples, levels = driver.build_pyramid(levels)
 
         if mpp is None:  # If no override is passed, use native if present
@@ -196,8 +203,9 @@ class Slide(PartMixin):
         self,
         mpp: float = 64,
         weight: float = 1.0,
-        channels: Literal['L', 'Lab', 'ab'] = 'ab',
-        r: float = 0.5,
+        channels: Literal['L', 'Lab', 'ab'] = 'Lab',
+        r: float = 1.0,
+        # r: float = 0.0,  # minmax
     ) -> 'Slide':
         ref = self.resample(mpp=mpp).numpy()
         normalize = Normalizer(ref, weight=weight, channels=channels, r=r)
@@ -259,6 +267,7 @@ class Slide(PartMixin):
             return lvl
         return lvl.rescale(ds / downsample)
 
+    @prof
     def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieve image patch from maximum resolution"""
         y_loc, x_loc, (c_lo, c_hi) = normalize_loc(key, self.shape)
