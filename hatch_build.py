@@ -15,12 +15,12 @@ _BASEURL = (
     '/releases/download'
     '/v{version}/openslide_bin-{version}-py3-none-win_amd64.whl'
 )
-_FILTERS = {
-    '4.0.0.8': r'libopenslide-1\.dll',
+_LIBS = {
+    '4.0.0.13': 'libopenslide-1.dll',
 }
 _URLS = {
-    _BASEURL.format(version=version): re.compile(regex)
-    for version, regex in _FILTERS.items()
+    _BASEURL.format(version=version): re.compile(re.escape(regex))
+    for version, regex in _LIBS.items()
 }
 _TARGET = 'src/bipl/io/libs'
 
@@ -37,7 +37,9 @@ def _url_to_io(url: str) -> io.BytesIO:
 
 def _download_dlls(folder: Path) -> None:
     """Download archive, extract DLLs and place them into target folder"""
-    if sys.platform != 'win32' or folder.exists():
+    if folder.exists() and all(
+        (folder / lib).is_file() for lib in _LIBS.values()
+    ):
         return
 
     folder.mkdir(parents=True, exist_ok=True)
