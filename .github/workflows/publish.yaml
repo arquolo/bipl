@@ -3,11 +3,13 @@ name: Publish Python Package
 on:
   push:
     tags:
-      - v0.*
-      - v1.*
+      - v0.**
+      - v1.**
+    paths:
+      - 'pyproject.toml'
 
 jobs:
-  deploy:
+  build_and_publish:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
     environment:
@@ -24,7 +26,7 @@ jobs:
       - name: Install dependencies & build
         run: |
           python -m pip install --upgrade pip
-          pip install build twine wheel
+          pip install build wheel
           python -m build
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
